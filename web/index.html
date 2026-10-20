@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f7f7f5">
+  <title>Usage · 用量总览</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Usage 首页"><span class="brand-mark">◒</span> usage<span class="brand-dot">.</span></a>
+      <div class="top-actions"><span class="connection"><span class="status-dot" id="status-dot"></span><span id="connection">正在连接</span></span><button class="theme-toggle" id="theme" aria-label="切换深浅色" title="切换深浅色">◐</button></div>
+    </header>
+    <main>
+      <div class="page-heading">
+        <div><p class="eyebrow">A LITTLE ROOM TO CREATE</p><h1>用量总览</h1><p class="intro">套餐余量与跨设备用量，一处查看。</p></div>
+        <button class="refresh" id="refresh" aria-label="刷新数据"><span aria-hidden="true">↻</span><span>刷新</span></button>
+      </div>
+      <div class="notice" id="notice" role="status" hidden></div>
+      <section aria-labelledby="quota-heading">
+        <div class="section-heading"><h2 id="quota-heading">订阅额度</h2><span class="muted">按套餐实际窗口更新</span></div>
+        <div class="quota-grid" id="quotas"><div class="empty panel">正在读取套餐额度…</div></div>
+      </section>
+      <section class="activity-grid" aria-label="Token 用量">
+        <article class="panel today-card">
+          <div class="section-heading"><h2>今日 Token</h2><span class="tag">含缓存</span></div>
+          <div class="daily-number" id="today-total">—</div>
+          <p class="metric-caption" id="today-caption">正在读取用量</p>
+          <div class="breakdown" id="breakdown"></div>
+          <p class="reasoning" id="reasoning">推理用量尚未读取</p>
+          <div class="card-foot"><span id="requests">— 次请求</span><span id="cache-hit">— 缓存命中</span></div>
+        </article>
+        <article class="panel trend-card">
+          <div class="section-heading"><h2>近七日节奏</h2><span class="muted">Asia / Shanghai</span></div>
+          <div class="week-heading"><strong id="week-total">—</strong><span class="metric-caption">累计 Token，含缓存</span></div>
+          <div class="chart" id="chart" aria-label="近七日 Token 柱状图"></div>
+          <div class="card-foot"><span>包含本机与已同步的服务器用量</span><span id="week-requests">— 次请求</span></div>
+        </article>
+      </section>
+      <section class="detail-grid" aria-label="近七日分布">
+        <article class="panel"><div class="section-heading"><h2>常用模型</h2><span class="muted">近七日 · Token</span></div><div id="models"></div></article>
+        <article class="panel"><div class="section-heading"><h2>来自你的设备</h2><span class="muted">近七日 · 已同步</span></div><div id="computers"></div><p class="fine-print">沿用 Magpie 的合并结果。设备离线时，显示已同步的历史用量。</p></article>
+      </section>
+      <details class="install">
+        <summary>添加到 iPhone 桌面 <span aria-hidden="true">↗</span></summary>
+        <ol><li>在 iPhone 安装 Scriptable，并保持 Tailscale 已连接。</li><li>新建脚本，粘贴 <a href="/scriptable/SetupUsageWidget.js">SetupUsageWidget.js</a> 的完整内容并运行。</li><li>输入本服务地址与只读令牌。安装器会自动下载桌面组件。</li><li>长按桌面添加 Scriptable，选择 UsageWidget；推荐中号。</li></ol>
+        <p>小号组件参数：<code>codex</code>、<code>minimax</code> 或 <code>glm</code>。令牌只保存在本机 Keychain。</p>
+      </details>
+      <footer><span>OBSERVED BY MAGPIE <span class="footer-separator">/</span> MADE FOR YOUR IPHONE</span><span id="updated">尚未更新</span></footer>
+      <p class="method">Token = 输入 + 输出 + 缓存读取 + 缓存写入；推理用量已包含在输出中，不重复相加。额度比例由套餐提供，与 Token 统计独立。</p>
+    </main>
+  </div>
+  <dialog id="auth">
+    <form id="auth-form">
+      <span class="brand-mark">◒</span><h2>连接你的用量</h2><p>输入本服务的只读令牌。它与模型 API Key 无关。</p>
+      <label for="token">只读访问令牌</label><input id="token" type="password" autocomplete="off" required placeholder="粘贴本地生成的令牌">
+      <button type="submit">连接</button><p class="auth-error" id="auth-error" role="alert"></p>
+    </form>
+  </dialog>
+</body>
+</html>

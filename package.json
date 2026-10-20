@@ -1,0 +1,17 @@
+{
+  "name": "scriptable-token-widgets",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Private Magpie usage bridge and elegant iPhone widgets",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node backend/server.mjs",
+    "configure": "node scripts/configure.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "demo": "node backend/server.mjs --demo"
+  }
+}
