@@ -129,6 +129,8 @@ test('display options are clamped and never carry unsafe identifiers', () => {
   assert.equal(displayOptions({ modelLimit: 999 }).modelLimit, 20);
   assert.equal(displayOptions({ modelLimit: 0 }).modelLimit, 1);
   assert.equal(displayOptions({ modelLimit: 'many' }).modelLimit, 8);
+  assert.equal(displayOptions({ modelLimit: null }).modelLimit, 8);
+  assert.equal(displayOptions({ modelLimit: '' }).modelLimit, 8);
   assert.deepEqual(displayOptions({ subscriptions: ['codex', '../../etc', 'MiniMax'] }).subscriptions, ['codex', 'minimax']);
   assert.deepEqual(displayOptions({}).subscriptions, ['codex', 'minimax', 'glm']);
 });

@@ -144,6 +144,7 @@ export const DEFAULT_DISPLAY = {
 const SUBSCRIPTION_ID = /^[a-z][a-z0-9-]{0,19}$/;
 export function displayOptions(value = {}) {
   const limit = (input, fallback) => {
+    if (input === null || input === undefined || input === '') return fallback;
     const parsed = Number(input);
     if (!Number.isFinite(parsed)) return fallback;
     return Math.max(1, Math.min(20, Math.round(parsed)));
