@@ -19,6 +19,7 @@ if (!tailnetIP) throw new Error('No Tailscale IPv4 address found.');
 const phoneIPs = Object.values(status.Peer || {}).filter(peer => peer.OS === 'iOS').flatMap(peer => peer.TailscaleIPs || []).filter(ip => /^100\./.test(ip));
 const config = {
   port: old.port || 8799,
+  nodePath: process.execPath,
   upstream: old.upstream || 'http://127.0.0.1:3425',
   magpieDir: old.magpieDir || path.join(os.homedir(), '.config', 'magpie'),
   tailnetIP,

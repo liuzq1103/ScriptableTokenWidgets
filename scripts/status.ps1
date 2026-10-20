@@ -7,7 +7,7 @@ if ($task) {
   else { Write-Output ("Task: {0}; last result: {1}" -f $task.State, $info.LastTaskResult) }
 } else { Write-Output 'Task is not installed.' }
 try {
-  $config = Get-Content -LiteralPath (Join-Path $projectRoot '.local\config.json') -Raw | ConvertFrom-Json
+  $config = Get-Content -LiteralPath (Join-Path $projectRoot '.local\config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
   $data = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/api/v1/overview" -f $config.port) -Headers @{Authorization="Bearer $($config.token)"} -TimeoutSec 5
   Write-Output ("Local API: OK; quota cards: {0}" -f $data.subscriptions.Count)
   foreach ($name in @('quotas','today','week')) {

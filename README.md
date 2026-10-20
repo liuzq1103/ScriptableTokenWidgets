@@ -67,7 +67,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
 
 任务在当前用户登录后启动；PC 睡眠、关机或未登录时，手机显示最后缓存。卸载保留本地配置与缓存，并只清理本项目创建的转发。
 
-更多配置、排障与验收说明见 [部署文档](docs/DEPLOYMENT.md)，接口字段见 [API 文档](docs/API.md)。
+更多配置、排障与验收说明见 [部署文档](docs/DEPLOYMENT.md)，接口字段见 [API 文档](docs/API.md)，独立模型复核进展见 [复核记录](docs/REVIEW.md)。
 
 ## 本地验证与虚构预览
 
