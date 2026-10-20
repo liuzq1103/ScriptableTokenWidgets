@@ -36,7 +36,7 @@ Authorization: Bearer <local-read-only-token>
 
 模型与厂商条目来自 Magpie 的实际用量，不做模型名白名单以外的裁剪：同一模型若以不同厂商前缀或不同大小写出现（如 `glm-5.3`、`GLM-5.3`、`zhipu/glm-5.3`），会合并为一行并累加各项计数。厂商标签按上游稳定 id 解析（`minimax-cn` → `MiniMax`、`zhipu` → `GLM`、`session-unknown` → `本地会话`）；无法识别的 id 显示为 `Unknown`，上游自由文本不会作为标签输出。
 
-`subscriptions` 的顺序即手机组件的显示顺序；中号组件最多显示 3 个套餐，大号显示全部。
+`subscriptions` 的顺序即手机组件的显示顺序；中号组件最多显示 3 个套餐，大号最多显示 4 个，超出的部分在组件上标注并保留在详情页。
 
 套餐字段：`id`、`provider`、`label`、`plan`、`updatedAt`、`stale`、`windows`。多个同厂商账号使用匿名序号，不输出账号身份。额度 windows 包含：
 - `label`：厂商窗口名。

@@ -88,13 +88,20 @@ export function normalizeQuotas(raw, cache = {}) {
 const SUM_FIELDS = ['calls', 'errors', 'input', 'output', 'cache_read', 'cache_write', 'reasoning'];
 // Internal ceiling; the effective number of rows is chosen by the display configuration.
 const RANKING_CAP = 50;
+// The grouping key of a model row. Rows whose name does not pass the label rules
+// are never merged, so they keep their own line.
+export function modelKey(value) {
+  const label = typedLabel(value, 'model', 0);
+  return label === 'Unknown' ? null : label.toLowerCase();
+}
 // Upstream can report one model several times: with a provider prefix, with a
 // different case, or under another account. Merge those rows into one line.
 function mergeModels(rows) {
   const groups = new Map();
   for (const [index, row] of rows.entries()) {
-    const label = typedLabel(labelSource(row, 'model'), 'model', index);
-    const key = label === 'Unknown' ? 'unknown:' + index : label.toLowerCase();
+    const source = labelSource(row, 'model');
+    const label = typedLabel(source, 'model', index);
+    const key = modelKey(source) ?? 'unknown:' + index;
     const tokens = metrics(row).totalTokens;
     const group = groups.get(key);
     if (!group) { groups.set(key, { label, tokens, row: { ...row } }); continue; }
@@ -205,9 +212,16 @@ export function project(snapshot, now = Date.now(), display = {}) {
     })),
   }));
   const showAll = options.subscriptions.includes('*');
+  // Without an explicit list the canonical family order is used; a provider that
+  // is not listed sorts last instead of first.
+  const order = showAll ? PROVIDER_ORDER : options.subscriptions;
+  const rank = provider => {
+    const index = order.indexOf(provider);
+    return index < 0 ? order.length : index;
+  };
   const shown = subscriptions
     .filter(card => showAll || options.subscriptions.includes(card.provider))
-    .sort((a, b) => options.subscriptions.indexOf(a.provider) - options.subscriptions.indexOf(b.provider));
+    .sort((a, b) => rank(a.provider) - rank(b.provider));
   const week = snapshot.parts.week?.data;
   return {
     schemaVersion: 1, generatedAt: new Date(now).toISOString(), timezone: 'Asia/Shanghai', sources,

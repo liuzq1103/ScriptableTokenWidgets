@@ -52,7 +52,7 @@ node scripts/configure.mjs --model-limit 12 --subscriptions codex,minimax,glm
 
 模型与厂商条目本身来自 Magpie 的实际用量，新增模型无需改代码。**新增订阅家族**（Magpie 里出现本项目未映射的额度卡）需要在 `backend/normalize.mjs` 的 `PROVIDERS` 增加一行 id 与固定显示名，再写进 `subscriptions`；标签只允许取自代码里的固定映射，不读取上游自由文本。
 
-组件布局上限：小号只显示一家，中号最多显示 3 个套餐，大号显示全部。`subscriptions` 里排到第 4 个及以后的套餐只在大号出现，这是中号进度条宽度（约 88pt）的布局约束，不是数据丢失。
+组件布局上限：小号只显示一家，中号最多显示 3 个套餐，大号最多显示 4 个套餐（组件高度固定，超出的部分在组件上标注"另有 N 个套餐"并保留在详情页）。这是进度条宽度与组件高度带来的布局约束，不是数据丢失；`subscriptions` 里排在前面的套餐优先显示。
 
 默认安装器使用 [Tailscale TCP 转发](https://tailscale.com/docs/reference/tailscale-cli/serve)，将 Tailnet 上的本项目端口转发至本机回环服务。转发在 Tailscale 重启后保留，不需要开启公网 Funnel。已有同端口且指向其他目标的转发会阻止安装，不覆盖它。
 

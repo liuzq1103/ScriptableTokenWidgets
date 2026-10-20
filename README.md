@@ -55,9 +55,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
 |---|---|---|
 | 小号 | 单家剩余额度、重置倒计时、今日 Token | `codex`（默认）、`minimax`、`glm` |
 | 中号 | 所选套餐的主要窗口（最多 3 个）、重置倒计时、今日 Token | 留空 |
-| 大号 | 所选套餐的全部窗口、今日用量、七日趋势 | 留空 |
+| 大号 | 所选套餐的全部窗口（最多 4 个）、今日用量、七日趋势 | 留空 |
 
 令牌保存在 iPhone 的 Keychain，不需要将任何密钥写入脚本。点击组件打开详情页；网页会立即移除地址中的令牌片段，仅在本标签页保存访问状态。
+
+小号组件按 Widget Parameter 选择套餐（默认 `codex`）。如果 PC 端 `subscriptions` 里没有这一家，组件显示"暂无该套餐"而不是回退到别家——改参数或在 PC 端加上这一家即可。
 
 ## 日常维护
 

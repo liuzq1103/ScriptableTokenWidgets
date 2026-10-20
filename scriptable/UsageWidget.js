@@ -145,7 +145,10 @@ if (!settings || !data || data.schemaVersion !== 1) {
     foot.addSpacer(); text(foot, "剩余额度 · 含缓存用量", 8, colors.muted);
   } else {
     widget.addSpacer(14);
-    for (const card of data.subscriptions || []) {
+    // The large widget has a fixed height; the remaining subscriptions stay in the detail page.
+    const all = data.subscriptions || [];
+    const shown = all.slice(0, 4);
+    for (const card of shown) {
       const row = widget.addStack(); row.centerAlignContent();
       text(row, card.label, 13, colors.text, "medium");
       row.addSpacer();
@@ -161,7 +164,8 @@ if (!settings || !data || data.schemaVersion !== 1) {
       text(widget, reset(primary) + (card.stale ? " · 缓存额度" : ""), 9, colors.muted);
       widget.addSpacer(16);
     }
-    if (!(data.subscriptions || []).length) text(widget, "暂无套餐", 13, colors.muted, "medium");
+    if (!shown.length) text(widget, "暂无套餐", 13, colors.muted, "medium");
+    else if (all.length > shown.length) text(widget, "另有 " + (all.length - shown.length) + " 个套餐，见详情页", 9, colors.muted);
     const totals = widget.addStack();
     text(totals, "今日 " + compact(data.usage.today && data.usage.today.totalTokens), 19, colors.text, "medium");
     totals.addSpacer(); text(totals, "近七日 " + compact(data.usage.week && data.usage.week.totalTokens), 10, colors.muted);

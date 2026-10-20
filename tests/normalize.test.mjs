@@ -123,6 +123,9 @@ test('the display configuration selects and orders the subscriptions the phone s
   assert.deepEqual(project(snapshot, now).subscriptions.map(card => card.provider), ['codex', 'minimax', 'glm']);
   assert.deepEqual(project(snapshot, now, { subscriptions: ['glm', 'codex'] }).subscriptions.map(card => card.provider), ['glm', 'codex']);
   assert.deepEqual(project(snapshot, now, { subscriptions: ['minimax'] }).subscriptions.map(card => card.provider), ['minimax']);
+  // A wildcard keeps the canonical family order instead of sorting the others first.
+  assert.deepEqual(project(snapshot, now, { subscriptions: ['*'] }).subscriptions.map(card => card.provider), ['codex', 'minimax', 'glm']);
+  assert.deepEqual(project(snapshot, now, { subscriptions: ['*', 'glm'] }).subscriptions.map(card => card.provider), ['codex', 'minimax', 'glm']);
 });
 
 test('display options are clamped and never carry unsafe identifiers', () => {

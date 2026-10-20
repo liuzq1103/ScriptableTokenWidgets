@@ -62,3 +62,14 @@ test('the widget renders the subscriptions the service sends, not a fixed list',
   assert.ok(large.includes('ZCODE'));
   assert.ok(large.includes('CODEX'));
 });
+test('a fixed height widget never overflows and points at the detail page instead', async () => {
+  const many = ['codex', 'minimax', 'glm', 'zcode', 'extra', 'more'].map(provider => ({
+    id: provider, provider, label: provider.toUpperCase(), plan: 'Plan', updatedAt: null, stale: false,
+    windows: [{ label: '5 hours', usedPercent: 50, remainingPercent: 50, resetsAt: null, expired: false }],
+  }));
+  const large = (await render('large', { subscriptions: many })).texts;
+  assert.ok(!large.includes('EXTRA'), 'the large widget must not render every subscription');
+  assert.ok(large.some(t => t.includes('另有 2 个套餐')));
+  const medium = (await render('medium', { subscriptions: many })).texts;
+  assert.ok(medium.includes('GLM') && !medium.includes('ZCODE'), 'the medium widget keeps to three columns');
+});
