@@ -27,6 +27,31 @@ PC 上 Magpie 的网关需要正在运行，默认地址为 `http://127.0.0.1:34
 
 整个 `.local` 目录使用当前用户、SYSTEM 和 Administrators 的访问权限，且被 Git 忽略。再次安装保留令牌。不要在共享终端打印配置内容。
 
+### 展示配置
+
+`.local/config.json` 的 `display` 段决定详情页与手机组件显示多少内容。手机端不保存任何展示选项，只渲染服务投影的结果。
+
+| 键 | 含义 | 默认 |
+|---|---|---|
+| `modelLimit` | "常用模型"显示条数，1–20 | 8 |
+| `providerLimit` | 厂商排行条数 | 20 |
+| `computerLimit` | 设备排行条数 | 20 |
+| `subscriptions` | 手机组件显示哪些套餐及顺序（`codex` / `minimax` / `glm`；`*` 表示全部） | `["codex","minimax","glm"]` |
+
+用配置脚本调整（会保留令牌、端口与其它设置）：
+
+```powershell
+node scripts/configure.mjs --model-limit 12 --subscriptions codex,minimax,glm
+```
+
+改完重启服务生效：
+
+```powershell
+.\scripts\restart.ps1
+```
+
+模型与厂商条目本身来自 Magpie 的实际用量，新增模型无需改代码。**新增订阅家族**（Magpie 里出现本项目未映射的额度卡）需要在 `backend/normalize.mjs` 的 `PROVIDERS` 增加一行 id 与固定显示名，再写进 `subscriptions`；标签只允许取自代码里的固定映射，不读取上游自由文本。
+
 默认安装器使用 [Tailscale TCP 转发](https://tailscale.com/docs/reference/tailscale-cli/serve)，将 Tailnet 上的本项目端口转发至本机回环服务。转发在 Tailscale 重启后保留，不需要开启公网 Funnel。已有同端口且指向其他目标的转发会阻止安装，不覆盖它。
 
 如希望直接通过 Windows 网络栈提供服务，可在管理员 PowerShell 中使用 `scripts/install.ps1 -Firewall`；它仅为当前 iOS Tailnet 对端建立精确的本地地址、端口和 Node 程序规则。默认模式不需要此规则。
@@ -44,6 +69,8 @@ PC 上 Magpie 的网关需要正在运行，默认地址为 `http://127.0.0.1:34
 在 Scriptable 新建安装器脚本，粘贴仓库中的 `SetupUsageWidget.js` 全文并运行。验证成功后，组件写入 Scriptable 的 iCloud 文档目录（iCloud 不可用时使用本机目录）；Keychain 保存连接信息，本机文档目录保存最后成功快照。已有同名且不是本项目的脚本不会被覆盖。
 
 再次运行安装器可以更新或重新配置组件。iOS 可能在首次运行时询问网络、文件或 Keychain 相关权限，需要由你在手机上完成。
+
+**添加桌面组件用系统的小组件机制**：长按桌面空白处 → 左上角"＋" → 搜索 Scriptable → 选**中号**小组件 → 长按组件 → "编辑 Widget" → 脚本选 `UsageWidget`。不要用 Scriptable 脚本内的 "Add to Home Screen" 按钮，它在较新的 iOS 上会被 Safari 拦截（见"iPhone 上打不开详情页"）。
 
 ## 刷新与数据状态
 
@@ -76,6 +103,28 @@ node scripts/verify-live.mjs
 - 端口冲突：修改本地配置端口后重新运行安装器；它会依据本项目的归属记录移除旧转发并创建新转发。若原转发已被修改或新端口属于其他目标，安装器报错并保留相关配置。不要使用 `tailscale serve reset` 清空其他服务。
 - 地址或 iPhone 更换：再次配置；若使用直接防火墙模式，还需重新应用对应精确规则。
 - 令牌需要更换：停止服务，在本地配置中删除 token 字段，再运行安装器生成新令牌，最后重新运行手机安装器。
+
+## iPhone 上打不开详情页
+
+### 提示"不允许使用受限制的网络端口"
+
+**这不是本服务的问题，也不是端口被封。** 先看 Safari 地址栏：
+
+- 地址栏是 `data:text/html;base64,…` → 是 **Scriptable 的 "Add to Home Screen" 功能**。它会生成一个内嵌的引导页（标题是脚本名，提示"Run script from home screen"，图标指向手机本机的 `http://localhost:8425/…`）并要求 Safari 打开它。新版 iOS Safari 禁止从其它 App 跳转打开 `data:` 网址，于是直接拦截并显示该提示，**根本还没访问到你的服务**。
+  - 处理：关掉那个页面即可。桌面组件要通过系统的小组件机制添加——长按桌面空白处 → 左上角"＋" → 搜索 **Scriptable** → 选**中号**小组件 → 长按组件 → "编辑 Widget" → 脚本选 `UsageWidget`（中号参数留空；小号才填 `codex` / `minimax` / `glm`）。
+  - 该功能创建的是"运行脚本的图标"，与本项目需要的 Scriptable 小组件不是一回事，正常流程本来就不需要它。
+- 地址栏是 `http://<Tailscale IP>:8799/…` → 才需要按下面的连接问题排查。本项目默认端口 8799 不在 Safari 的受限端口名单内；若地址栏里的端口与 `.local/iphone-setup.txt` 不一致，多半是地址敲错或用了旧地址。
+
+### 其它常见现象
+
+| 现象 | 原因与处理 |
+|---|---|
+| Safari 显示"无法连接"或空白页 | 两端 Tailscale 未连接；或 Tailnet ACL 未放行该端口。用 `node scripts/tailnet.mjs status` 确认转发仍在。 |
+| 组件显示"离线缓存" | PC 睡眠、关机或未登录，组件保留最后一次成功快照；PC 恢复后自动更新。 |
+| 组件提示"令牌无效，请重新设置" | 本地配置的令牌已更换或 `.local/config.json` 被重写，重新运行 `SetupUsageWidget.js` 并填入新的令牌。 |
+| 组件显示"暂时无法连接" | 首次运行还没有缓存，且这次请求失败。检查 PC 服务与 Tailscale 后重跑组件。 |
+| 点组件打不开详情页 | 详情页地址由 `SetupUsageWidget.js` 写入 Keychain 的 `baseURL` 决定。重新运行安装器可重写。 |
+| 详情页要求输入令牌 | 浏览器用片段 `#token=` 传令牌，页面加载后立即从地址栏移除，只在该标签页的 sessionStorage 里保存。跨标签页或重启浏览器后需重新输入。 |
 
 ## 验证边界
 

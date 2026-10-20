@@ -5,9 +5,10 @@ import { readFile } from 'node:fs/promises';
 import { makeDemo } from '../fixtures/demo.mjs';
 const source = await readFile(new URL('../scriptable/UsageWidget.js', import.meta.url), 'utf8');
 const fixed = Date.parse('2026-06-12T04:00:00Z');
-async function render(family, { offline = false, configured = true, cached = true, expired = false } = {}) {
+async function render(family, { offline = false, configured = true, cached = true, expired = false, subscriptions = null } = {}) {
   const data = makeDemo(fixed);
   if (expired) data.subscriptions.forEach(c => c.windows.forEach(w => { w.resetsAt = new Date(fixed - 60000).toISOString(); }));
+  if (subscriptions) data.subscriptions = subscriptions;
   const texts = [], images = [], settings = { baseURL: 'http://127.0.0.1:8799', token: 'test-only-readonly-token' };
   class Stack {
     addText(value) { texts.push(value); return {}; }
@@ -48,4 +49,16 @@ test('an elapsed quota never becomes a fresh 100 percent allowance on the phone'
   const { texts } = await render('large', { expired: true });
   assert.ok(texts.some(t => t.includes('已到期')));
   assert.ok(!texts.some(t => /\d+%/.test(t)));
+});
+test('the widget renders the subscriptions the service sends, not a fixed list', async () => {
+  const four = ['codex', 'minimax', 'glm', 'zcode'].map(provider => ({
+    id: provider, provider, label: provider.toUpperCase(), plan: 'Plan', updatedAt: null, stale: false,
+    windows: [{ label: '5 hours', usedPercent: 50, remainingPercent: 50, resetsAt: null, expired: false }],
+  }));
+  const medium = (await render('medium', { subscriptions: four })).texts;
+  const large = (await render('large', { subscriptions: four })).texts;
+  assert.ok(medium.includes('CODEX') && medium.includes('MINIMAX') && medium.includes('GLM'));
+  assert.ok(!medium.includes('ZCODE'));
+  assert.ok(large.includes('ZCODE'));
+  assert.ok(large.includes('CODEX'));
 });

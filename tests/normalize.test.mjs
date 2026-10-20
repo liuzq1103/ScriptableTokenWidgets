@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { metrics, normalizeQuotas, normalizeUsage, project } from '../backend/normalize.mjs';
+import { metrics, normalizeQuotas, normalizeUsage, project, displayOptions } from '../backend/normalize.mjs';
 import { makeRawUsage, makeQuotaResponse } from '../fixtures/demo.mjs';
 const now = Date.parse('2026-06-12T04:00:00Z');
+const sample = tokens => ({ calls: 1, errors: 0, input: tokens, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 });
 test('cache is added once; reasoning is not added to output again', () => {
   const data = metrics({ calls: 3, input: 10, output: 20, cache_read: 30, cache_write: 40, reasoning: 15 });
   assert.equal(data.totalTokens, 100); assert.equal(data.reasoningTokens, 15);
@@ -73,4 +74,61 @@ test('typed labels cannot carry paths, emails or free-form prompts through allow
   assert.equal(normalized.models[0].label, 'gpt-5-demo');
   assert.equal(normalized.computers[0].label, 'Demo-PC');
   assert.match(normalized.trend[0].label, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('provider labels resolve by stable id instead of the upstream display name', () => {
+  const raw = makeRawUsage('7d', now);
+  raw.by.provider = [
+    { id: 'session-unknown', name: 'Local session', ...sample(10) },
+    { id: 'minimax-cn', name: 'MiniMax (China)', ...sample(20) },
+    { id: 'zhipu', name: 'Zhipu GLM', ...sample(30) },
+    { id: 'zcode', name: 'ZCode', ...sample(5) },
+    { id: 'mystery-vendor', name: 'Mystery Corp', ...sample(1) },
+  ];
+  const providers = normalizeUsage(raw).providers;
+  assert.deepEqual(providers.map(p => p.label), ['GLM', 'MiniMax', '本地会话', 'ZCode', 'Unknown']);
+  // The upstream display name never reaches the client.
+  assert.ok(!JSON.stringify(providers).includes('Mystery Corp'));
+  assert.ok(!JSON.stringify(providers).includes('Local session'));
+});
+
+test('one model reported under a prefix or another casing becomes a single line', () => {
+  const raw = makeRawUsage('7d', now);
+  raw.by.model = [
+    { name: 'glm-5.3', ...sample(100) },
+    { name: 'GLM-5.3', ...sample(20) },
+    { name: 'zhipu/glm-5.3', ...sample(5) },
+    { name: 'gpt-6.1-sol', ...sample(50) },
+  ];
+  const models = normalizeUsage(raw).models;
+  assert.equal(models.length, 2);
+  assert.equal(models[0].label, 'glm-5.3');
+  assert.equal(models[0].totalTokens, 125);
+  assert.equal(models[0].requests, 3);
+  assert.equal(models[1].label, 'gpt-6.1-sol');
+});
+
+test('the display configuration chooses how many rows are shown', () => {
+  const raw = makeRawUsage('7d', now);
+  raw.by.model = Array.from({ length: 12 }, (_, i) => ({ name: 'gpt-5-demo-' + i, ...sample(i + 1) }));
+  const snapshot = { failures: {}, parts: { week: { observedAt: new Date(now).toISOString(), data: normalizeUsage(raw) } } };
+  const limited = project(snapshot, now, { modelLimit: 3 });
+  assert.equal(limited.rankings.models.length, 3);
+  assert.equal(limited.display.modelLimit, 3);
+  assert.equal(limited.rankings.models[0].label, 'gpt-5-demo-11');
+});
+
+test('the display configuration selects and orders the subscriptions the phone shows', () => {
+  const snapshot = { failures: {}, parts: { quotas: { observedAt: new Date(now).toISOString(), data: normalizeQuotas(makeQuotaResponse(now)) } } };
+  assert.deepEqual(project(snapshot, now).subscriptions.map(card => card.provider), ['codex', 'minimax', 'glm']);
+  assert.deepEqual(project(snapshot, now, { subscriptions: ['glm', 'codex'] }).subscriptions.map(card => card.provider), ['glm', 'codex']);
+  assert.deepEqual(project(snapshot, now, { subscriptions: ['minimax'] }).subscriptions.map(card => card.provider), ['minimax']);
+});
+
+test('display options are clamped and never carry unsafe identifiers', () => {
+  assert.equal(displayOptions({ modelLimit: 999 }).modelLimit, 20);
+  assert.equal(displayOptions({ modelLimit: 0 }).modelLimit, 1);
+  assert.equal(displayOptions({ modelLimit: 'many' }).modelLimit, 8);
+  assert.deepEqual(displayOptions({ subscriptions: ['codex', '../../etc', 'MiniMax'] }).subscriptions, ['codex', 'minimax']);
+  assert.deepEqual(displayOptions({}).subscriptions, ['codex', 'minimax', 'glm']);
 });

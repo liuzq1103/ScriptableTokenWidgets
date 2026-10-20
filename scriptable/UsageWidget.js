@@ -125,30 +125,31 @@ if (!settings || !data || data.schemaVersion !== 1) {
   } else if (family === "medium") {
     widget.addSpacer(12);
     const columns = widget.addStack();
-    for (const [index, id] of ["codex", "minimax", "glm"].entries()) {
+    // The service decides which subscriptions to show and in which order.
+    const shown = (data.subscriptions || []).slice(0, 3);
+    for (const [index, card] of shown.entries()) {
       if (index) columns.addSpacer();
-      const card = data.subscriptions.find(c => c.provider === id);
       const column = columns.addStack(); column.layoutVertically();
       const primary = card && card.windows[0] || emptyWindow;
       const name = column.addStack();
-      text(name, card ? card.label : id === "glm" ? "GLM" : id === "minimax" ? "MiniMax" : "Codex", 11, colors.muted, "medium");
+      text(name, card ? card.label : "—", 11, colors.muted, "medium");
       name.addSpacer(4); text(name, windowLabel(primary), 8, colors.muted);
       column.addSpacer(3); text(column, percent(primary), 28, accent(primary), "medium");
       column.addSpacer(7); bar(column, primary, 88);
       column.addSpacer(7); text(column, reset(primary), 8, colors.muted);
     }
+    if (!shown.length) { const column = columns.addStack(); column.layoutVertically(); text(column, "暂无套餐", 12, colors.muted, "medium"); }
     widget.addSpacer();
     const foot = widget.addStack();
     text(foot, "今日 " + compact(data.usage.today && data.usage.today.totalTokens) + " token", 10, colors.muted);
     foot.addSpacer(); text(foot, "剩余额度 · 含缓存用量", 8, colors.muted);
   } else {
     widget.addSpacer(14);
-    for (const id of ["codex", "minimax", "glm"]) {
-      const card = data.subscriptions.find(c => c.provider === id);
+    for (const card of data.subscriptions || []) {
       const row = widget.addStack(); row.centerAlignContent();
-      text(row, card ? card.label : id === "glm" ? "GLM" : id === "minimax" ? "MiniMax" : "Codex", 13, colors.text, "medium");
+      text(row, card.label, 13, colors.text, "medium");
       row.addSpacer();
-      const windows = card && card.windows.length ? card.windows : [emptyWindow];
+      const windows = card.windows.length ? card.windows : [emptyWindow];
       for (let i = 0; i < windows.length; i++) {
         if (i) row.addSpacer(12);
         text(row, windowLabel(windows[i]) + " " + percent(windows[i]), 12, accent(windows[i]), "medium");
@@ -157,9 +158,10 @@ if (!settings || !data || data.schemaVersion !== 1) {
       const primary = windows[0];
       bar(widget, primary, 290);
       widget.addSpacer(5);
-      text(widget, reset(primary) + (card && card.stale ? " · 缓存额度" : ""), 9, colors.muted);
+      text(widget, reset(primary) + (card.stale ? " · 缓存额度" : ""), 9, colors.muted);
       widget.addSpacer(16);
     }
+    if (!(data.subscriptions || []).length) text(widget, "暂无套餐", 13, colors.muted, "medium");
     const totals = widget.addStack();
     text(totals, "今日 " + compact(data.usage.today && data.usage.today.totalTokens), 19, colors.text, "medium");
     totals.addSpacer(); text(totals, "近七日 " + compact(data.usage.week && data.usage.week.totalTokens), 10, colors.muted);

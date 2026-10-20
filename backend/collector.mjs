@@ -3,8 +3,9 @@ import path from 'node:path';
 import { normalizeQuotas, normalizeUsage, project, shanghaiDay, sanitizeCachedLabels } from './normalize.mjs';
 
 export class Collector {
-  constructor({ upstream, magpieDir, snapshotFile, fetcher = fetch, clock = Date.now }) {
+  constructor({ upstream, magpieDir, snapshotFile, fetcher = fetch, clock = Date.now, display = {} }) {
     Object.assign(this, { upstream, magpieDir, snapshotFile, fetcher, clock });
+    this.display = display;
     this.snapshot = { version: 1, parts: {}, failures: {} };
     this.pending = null;
   }
@@ -56,5 +57,5 @@ export class Collector {
       await rename(this.snapshotFile + '.tmp', this.snapshotFile);
     } catch { console.warn('Snapshot could not be saved; serving the in-memory snapshot.'); }
   }
-  overview() { return project(this.snapshot, this.clock()); }
+  overview() { return project(this.snapshot, this.clock(), this.display); }
 }

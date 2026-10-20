@@ -49,6 +49,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
 3. 填入本地连接说明中的 Service URL 和 Read-only token。安装器验证连接后自动下载 `UsageWidget`。
 4. 长按 iPhone 桌面添加 Scriptable 小组件，选择 `UsageWidget`，推荐中号。
 
+   不要用 Scriptable 脚本内的 "Add to Home Screen" 按钮：它在较新的 iOS 上会被 Safari 拦截并提示"不允许使用受限制的网络端口"，与你的服务无关。
+
 | 尺寸 | 内容 | Widget Parameter |
 |---|---|---|
 | 小号 | 单家剩余额度、重置倒计时、今日 Token | `codex`（默认）、`minimax`、`glm` |
@@ -64,6 +66,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
 .\scripts\restart.ps1
 .\scripts\uninstall.ps1
 ```
+
+展示项在 PC 端配置，手机端只渲染服务投影的结果：
+
+```powershell
+node scripts/configure.mjs --model-limit 12 --subscriptions codex,minimax,glm
+.\scripts\restart.ps1
+```
+
+`modelLimit` 控制"常用模型"条数，`subscriptions` 控制手机组件显示哪些套餐及顺序。模型与厂商条目来自 Magpie 的实际用量，新增模型无需改代码。
 
 任务在当前用户登录后启动；PC 睡眠、关机或未登录时，手机显示最后缓存。卸载保留本地配置与缓存，并只清理本项目创建的转发。
 

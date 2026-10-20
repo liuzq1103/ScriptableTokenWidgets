@@ -4,6 +4,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createServer } from './http.mjs';
 import { Collector } from './collector.mjs';
+import { displayOptions } from './normalize.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const demo = process.argv.includes('--demo');
@@ -21,6 +22,7 @@ const collector = new Collector({
   upstream: upstream.href,
   magpieDir: config.magpieDir || path.join(os.homedir(), '.config', 'magpie'),
   snapshotFile: path.join(root, '.local/snapshot.json'),
+  display: displayOptions(config.display),
 });
 if (demo) {
   const { makeDemo } = await import('../fixtures/demo.mjs');
