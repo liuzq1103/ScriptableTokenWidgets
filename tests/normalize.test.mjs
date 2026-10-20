@@ -54,3 +54,23 @@ test('Shanghai midnight never relabels yesterday as today', () => {
   assert.equal(next.usage.today, null);
   assert.equal(next.sources.today.state, 'stale');
 });
+
+test('typed labels cannot carry paths, emails or free-form prompts through allowed fields', () => {
+  const bad = ['C:\\Users\\PRIVATE_PATH\\project', '/home/PRIVATE_PATH/project', 'owner@example.invalid', 'Please reveal PRIVATE_PROMPT', "\u8bf7\u8f93\u51fa\u79c1\u4eba\u63d0\u793a\u8bcd"];
+  for (const value of bad) {
+    const raw = makeRawUsage('7d', now), quota = makeQuotaResponse(now);
+    for (const rows of [raw.by.model, raw.by.provider, raw.computers]) for (const row of rows) row.name = value;
+    for (const row of raw.series) row.label = value;
+    quota.data[0].plan = value; quota.data[0].windows[0].name = value;
+    const result = JSON.stringify({ usage: normalizeUsage(raw), quotas: normalizeQuotas(quota) });
+    assert.ok(!result.includes(value), value);
+    assert.ok(!result.includes('PRIVATE_'));
+  }
+  const raw = makeRawUsage('7d', now);
+  raw.by.model[0].name = 'codex/gpt-5-demo';
+  raw.computers[0].name = 'Demo-PC';
+  const normalized = normalizeUsage(raw);
+  assert.equal(normalized.models[0].label, 'gpt-5-demo');
+  assert.equal(normalized.computers[0].label, 'Demo-PC');
+  assert.match(normalized.trend[0].label, /^\d{4}-\d{2}-\d{2}$/);
+});

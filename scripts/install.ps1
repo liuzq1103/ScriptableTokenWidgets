@@ -54,13 +54,20 @@ if ($Firewall) {
   if ($phoneIPs.Count -eq 0) { throw 'No iOS Tailscale peer found. Refusing a broad firewall rule.' }
   $ruleName = 'ScriptableTokenWidgets-iPhone'
   $previous = Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
+  $previousSpec = $null
   if ($previous) {
     Assert-BridgeFirewallOwned -Rule $previous -MarkerPath $firewallMarker -LegacyConfig $config
-    $previous | Remove-NetFirewallRule -ErrorAction Stop
+    $previousSpec = Get-BridgeFirewallSpec -Rule $previous
   }
+  $expected = [pscustomobject]@{
+    name=$ruleName; program=$nodePath; port=[string]$config.port; protocol='TCP'
+    local=[string]$config.tailnetIP; remote=(@($phoneIPs) | Sort-Object) -join ';'
+    direction='Inbound'; action='Allow'
+  }
+  Write-BridgeFirewallMarker -Path $firewallMarker -Record @{version=2;managed=$true;pending=$true;spec=$expected;previousSpec=$previousSpec}
+  if ($previous) { $previous | Remove-NetFirewallRule -ErrorAction Stop }
   $rule = New-NetFirewallRule -Name $ruleName -DisplayName 'ScriptableTokenWidgets: iPhone over Tailscale' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $config.port -LocalAddress $config.tailnetIP -RemoteAddress $phoneIPs -Program $nodePath -Profile Any -ErrorAction Stop
-  $record = @{ version=1; managed=$true; spec=(Get-BridgeFirewallSpec -Rule $rule) } | ConvertTo-Json -Depth 4
-  [System.IO.File]::WriteAllText($firewallMarker, $record)
+  Write-BridgeFirewallMarker -Path $firewallMarker -Record @{version=1;managed=$true;spec=(Get-BridgeFirewallSpec -Rule $rule)}
 } else {
   & $nodePath (Join-Path $PSScriptRoot 'tailnet.mjs') enable
   if ($LASTEXITCODE -ne 0) { throw 'Tailnet forwarding setup failed.' }

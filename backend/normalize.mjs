@@ -7,8 +7,24 @@ const PROVIDERS = {
 export const iso = value => typeof value === 'string' && Number.isFinite(Date.parse(value))
   ? new Date(value).toISOString() : null;
 export const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
-export const label = (value, fallback = '') => typeof value === 'string'
-  ? value.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, '[account]').replace(/[\u0000-\u001f]/g, '').slice(0, 96) : fallback;
+// Labels are typed metadata, never arbitrary upstream text.
+const plans = /^(?:ChatGPT|Coding Plan|Free|Go|Plus|Pro|Team|Business|Enterprise|Starter|Lite|Basic|Standard|Max|Ultra)$/i;
+const windows = /^(?:\d{1,3}\s*(?:h|hours?|d|days?|minutes?|weeks?|months?|小时|天|周|月)|weekly|daily|monthly|yearly|tokens?|requests?|search|mcp|total)$/i;
+const modelFamily = /^(?:gpt[-.]?\d|o[1-9](?:-|$)|codex(?:-|$)|claude[-.](?:opus|sonnet|haiku|\d)|minimax-m\d|glm[-.]?\d|gemini[-.]?\d|qwen\d|deepseek[-.]?(?:v\d|r\d|chat|reasoner)|kimi[-.]?(?:k\d|latest)|grok[-.]?\d|mistral[-.]|llama[-.]?\d)/i;
+const providerNames = new Map(Object.entries({
+  codex: 'Codex', 'minimax-cn': 'MiniMax', minimax: 'MiniMax', zhipu: 'GLM', glm: 'GLM',
+  openai: 'OpenAI', anthropic: 'Anthropic', google: 'Google', deepseek: 'DeepSeek',
+  qwen: 'Qwen', kimi: 'Kimi', moonshot: 'Moonshot', ollama: 'Ollama',
+}));
+function typedLabel(value, type, index) {
+  if (typeof value !== 'string') return type === 'computer' ? 'Device ' + (index + 1) : 'Unknown';
+  if (type === 'computer') return /^[a-z0-9][a-z0-9_-]{0,62}$/i.test(value) ? value : 'Device ' + (index + 1);
+  if (type === 'provider') return providerNames.get(value.toLowerCase()) || 'Unknown';
+  // Accept model identifiers from known families; discard provider prefixes.
+  if (value.length > 120 || /^(?:[a-z]:|[\/~.])/i.test(value) || value.includes('\\') || value.split('/').length > 2) return 'Unknown';
+  const model = value.split('/').at(-1);
+  return /^[a-z0-9][a-z0-9._-]{0,79}$/i.test(model) && modelFamily.test(model) ? model : 'Unknown';
+}
 
 export function metrics(raw = {}) {
   const inputTokens = number(raw.input), outputTokens = number(raw.output);
@@ -34,12 +50,12 @@ export function normalizeQuotas(raw, cache = {}) {
     return [{
       id: index === 1 ? provider.id : provider.id + '-' + index,
       provider: provider.id, label: provider.label + (index > 1 ? ' ' + index : ''),
-      plan: label(card.plan, provider.plan) || provider.plan, updatedAt,
+      plan: typeof card.plan === 'string' && plans.test(card.plan) ? card.plan : provider.plan, updatedAt,
       windows: card.windows.map(window => {
         const known = typeof window.used === 'number' && Number.isFinite(window.used) && window.used >= 0;
         const usedPercent = known ? Math.min(100, window.used) : null;
         return {
-          label: label(window.name, 'Quota'), usedPercent,
+          label: typeof window.name === 'string' && windows.test(window.name) ? window.name : 'Quota', usedPercent,
           remainingPercent: known ? 100 - usedPercent : null,
           resetsAt: iso(window.resetsAt),
           amount: typeof window.amount === 'number' ? number(window.amount) : null,
@@ -51,7 +67,7 @@ export function normalizeQuotas(raw, cache = {}) {
 }
 function ranking(rows, type) {
   return (Array.isArray(rows) ? rows : []).map((row, i) => ({
-    id: type + '-' + (i + 1), label: label(row.name || row.model || row.id, 'Unknown'), ...metrics(row),
+    id: type + '-' + (i + 1), label: typedLabel(row.name || row.model || row.id, type, i), ...metrics(row),
   })).sort((a, b) => b.totalTokens - a.totalTokens).slice(0, type === 'model' ? 8 : 20);
 }
 export function normalizeUsage(raw) {
@@ -59,14 +75,28 @@ export function normalizeUsage(raw) {
     typeof raw[key] === 'number' && Number.isFinite(raw[key]) && raw[key] >= 0)) throw new Error('Invalid usage response');
   return {
     metrics: metrics(raw),
-    trend: (Array.isArray(raw.series) ? raw.series : []).map(item => ({
-      at: iso(item.time), label: label(item.label), ...metrics(item),
+    trend: (Array.isArray(raw.series) ? raw.series : []).map((item, index) => ({
+      at: iso(item.time), label: iso(item.time) ? shanghaiDay(Date.parse(item.time)) : 'Day ' + (index + 1), ...metrics(item),
     })),
     models: ranking(raw.by?.model, 'model'),
     providers: ranking(raw.by?.provider, 'provider'),
     computers: ranking(raw.computers, 'computer'),
   };
 }
+
+export function sanitizeCachedLabels(data, key) {
+  if (key === 'quotas') return normalizeQuotas({ data: data.map(card => ({
+    provider: card.provider === 'glm' ? 'zhipu' : card.provider, plan: card.plan, readAt: card.updatedAt,
+    windows: card.windows.map(window => ({ ...window, name: window.label, used: window.usedPercent })),
+  })) });
+  const cleanRows = (rows, type) => rows.map((row, index) => ({ ...row, label: typedLabel(row.label, type, index) }));
+  return { ...data,
+    trend: data.trend.map((row, index) => ({ ...row, label: iso(row.at) ? shanghaiDay(Date.parse(row.at)) : 'Day ' + (index + 1) })),
+    models: cleanRows(data.models, 'model'), providers: cleanRows(data.providers, 'provider'),
+    computers: cleanRows(data.computers, 'computer'),
+  };
+}
+
 export const shanghaiDay = value => new Date(value + 8 * 3600_000).toISOString().slice(0, 10);
 export function project(snapshot, now = Date.now()) {
   const sources = {};

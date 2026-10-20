@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
-import { normalizeQuotas, normalizeUsage, project, shanghaiDay } from './normalize.mjs';
+import { normalizeQuotas, normalizeUsage, project, shanghaiDay, sanitizeCachedLabels } from './normalize.mjs';
 
 export class Collector {
   constructor({ upstream, magpieDir, snapshotFile, fetcher = fetch, clock = Date.now }) {
@@ -12,8 +12,11 @@ export class Collector {
     try {
       const saved = JSON.parse(await readFile(this.snapshotFile, 'utf8'));
       if (saved.version === 1 && saved.parts && saved.failures) {
+        for (const key of Object.keys(saved.parts)) {
+          saved.parts[key].data = sanitizeCachedLabels(saved.parts[key].data, key);
+          saved.failures[key] = true; // Await live revalidation after every process restart.
+        }
         this.snapshot = saved;
-        for (const key of Object.keys(saved.parts)) this.snapshot.failures[key] = true;
       }
     } catch { /* A new or damaged cache must not prevent startup. */ }
   }

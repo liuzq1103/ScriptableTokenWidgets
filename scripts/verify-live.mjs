@@ -24,12 +24,24 @@ for (const [period, key] of [['today', 'today'], ['7d', 'week']]) {
   assert.equal(normalized.reasoningTokens, raw.reasoning || 0);
 }
 assert.equal(result.trend.length, originals['7d'].series.length);
-assert.equal(result.rankings.computers.length, Math.min(20, originals['7d'].computers.length));
-const ranked = [...originals['7d'].computers].sort((a, b) =>
-  (b.input + b.output + b.cache_read + b.cache_write) - (a.input + a.output + a.cache_read + a.cache_write));
-for (const [index, device] of result.rankings.computers.entries()) {
-  const raw = ranked[index];
-  assert.equal(device.totalTokens, raw.input + raw.output + raw.cache_read + raw.cache_write);
+const rankedTypes = [
+  ['models', originals['7d'].by?.model || [], 8],
+  ['providers', originals['7d'].by?.provider || [], 20],
+  ['computers', originals['7d'].computers || [], 20],
+];
+for (const [type, rows, limit] of rankedTypes) {
+  const ranked = [...rows].sort((a, b) =>
+    (b.input + b.output + b.cache_read + b.cache_write) - (a.input + a.output + a.cache_read + a.cache_write));
+  assert.equal(result.rankings[type].length, Math.min(limit, rows.length));
+  for (const [index, row] of result.rankings[type].entries()) {
+    const raw = ranked[index];
+    assert.equal(row.totalTokens, raw.input + raw.output + raw.cache_read + raw.cache_write);
+    assert.equal(row.requests, raw.calls);
+  }
+}
+for (const [index, row] of result.trend.entries()) {
+  const raw = originals['7d'].series[index];
+  assert.equal(row.totalTokens, raw.input + raw.output + raw.cache_read + raw.cache_write);
 }
 assert.ok(result.subscriptions.length > 0);
 console.log('Live verification passed: merged today/7d totals, daily trend, ' + result.rankings.computers.length + ' devices and ' + result.subscriptions.length + ' subscriptions. No credentials or private usage printed.');

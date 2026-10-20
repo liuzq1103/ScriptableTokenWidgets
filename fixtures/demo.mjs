@@ -9,10 +9,10 @@ export function makeRawUsage(period = 'today', now = Date.now()) {
     ...sample(total),
     series: values.map((tokens, i) => ({ ...sample(tokens), time: new Date(midnight - (6 - i) * 86400_000).toISOString(), label: 'Day ' + (i + 1) })),
     by: {
-      model: [['Codex Model', .47], ['MiniMax Model', .32], ['GLM Model', .21]].map(([name, share]) => ({ name, ...sample(total * share) })),
+      model: [['gpt-5-demo', .47], ['MiniMax-M3-demo', .32], ['glm-5-demo', .21]].map(([name, share]) => ({ name, ...sample(total * share) })),
       provider: [['Codex', .47], ['MiniMax', .32], ['GLM', .21]].map(([name, share]) => ({ name, ...sample(total * share) })),
     },
-    computers: [['My PC', .64], ['Research Server', .36]].map(([name, share]) => ({ name, ...sample(total * share) })),
+    computers: [['Demo-PC', .64], ['Demo-Server', .36]].map(([name, share]) => ({ name, ...sample(total * share) })),
   };
 }
 export function makeQuotaResponse(now = Date.now()) {
