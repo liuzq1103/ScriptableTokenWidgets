@@ -24,7 +24,8 @@ async function installer(root, { ready = true } = {}) {
   const harness = path.join(root, 'test.ps1');
   await psFile(harness, [
     "$ErrorActionPreference = 'Stop'",
-    "$expectedRunner = Join-Path " + quote(scripts) + " 'run.ps1'",
+    "# Both scripts use their resolved PowerShell directory (TEMP can contain an 8.3 alias).",
+    "$expectedRunner = Join-Path $PSScriptRoot 'scripts\\run.ps1'",
     "$expectedArguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"' + $expectedRunner + '\"'",
     "function Get-ScheduledTask { [pscustomobject]@{ State='Running'; Actions=@([pscustomobject]@{ Arguments=$expectedArguments }) } }",
     "function New-ScheduledTaskAction { [pscustomobject]@{} }",
