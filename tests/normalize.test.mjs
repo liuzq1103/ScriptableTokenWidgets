@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { metrics, normalizeQuotas, normalizeUsage, project, displayOptions } from '../backend/normalize.mjs';
+import { metrics, normalizeQuotas, normalizeUsage, project, displayOptions, displayOverrides, sanitizeCachedLabels } from '../backend/normalize.mjs';
 import { makeRawUsage, makeQuotaResponse } from '../fixtures/demo.mjs';
 const now = Date.parse('2026-06-12T04:00:00Z');
 const sample = tokens => ({ calls: 1, errors: 0, input: tokens, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 });
@@ -133,4 +133,36 @@ test('display options are clamped and never carry unsafe identifiers', () => {
   assert.equal(displayOptions({ modelLimit: '' }).modelLimit, 8);
   assert.deepEqual(displayOptions({ subscriptions: ['codex', '../../etc', 'MiniMax'] }).subscriptions, ['codex', 'minimax']);
   assert.deepEqual(displayOptions({}).subscriptions, ['codex', 'minimax', 'glm']);
+});
+
+test('a stored label survives the cache clean-up unchanged', () => {
+  const raw = makeRawUsage('7d', now);
+  raw.by.provider = [
+    { id: 'session-unknown', name: 'Local session', ...sample(10) },
+    { id: 'minimax-cn', name: 'MiniMax (China)', ...sample(20) },
+    { id: 'zcode', name: 'ZCode', ...sample(5) },
+  ];
+  const usage = normalizeUsage(raw);
+  const cleaned = sanitizeCachedLabels(usage, 'week');
+  assert.deepEqual(cleaned.providers.map(p => p.label), usage.providers.map(p => p.label));
+  assert.ok(cleaned.providers.some(p => p.label === '本地会话'));
+  assert.ok(cleaned.providers.some(p => p.label === 'ZCode'));
+});
+
+test('an empty command line value never replaces a saved display choice', () => {
+  assert.deepEqual(displayOverrides(['node', 'configure.mjs', '--subscriptions', '']), {});
+  assert.deepEqual(displayOverrides(['node', 'configure.mjs', '--subscriptions', 'codex,glm']), { subscriptions: ['codex', 'glm'] });
+  assert.deepEqual(displayOverrides(['node', 'configure.mjs', '--model-limit', '12']), { modelLimit: 12 });
+  assert.deepEqual(displayOverrides(['node', 'configure.mjs', '--model-limit', 'many']), {});
+  const saved = { subscriptions: ['glm'], modelLimit: 4 };
+  assert.deepEqual(displayOptions({ ...saved, ...displayOverrides(['node', 'configure.mjs', '--subscriptions', '']) }).subscriptions, ['glm']);
+});
+
+test('the documented cache hit rate uses input plus both cache directions', () => {
+  const data = metrics({ calls: 1, input: 10, output: 5, cache_read: 30, cache_write: 60, reasoning: 0 });
+  assert.equal(data.totalTokens, 105);
+  assert.equal(data.cacheHitPercent, 30);
+  assert.equal(metrics({ cache_read: 30 }).cacheHitPercent, 100);
+  assert.equal(metrics({ input: 5 }).cacheHitPercent, 0);
+  assert.equal(metrics({}).cacheHitPercent, null);
 });

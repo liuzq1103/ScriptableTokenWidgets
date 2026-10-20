@@ -92,6 +92,23 @@ test('Windows runner uses the persisted Node executable', windows, async () => {
   assert.equal(await readFile(path.join(root, '.local/runtime'), 'utf8'), runtime);
 });
 
+test('Windows status uses the persisted Node executable instead of PATH', windows, async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, '.local/config.json'), JSON.stringify({ nodePath: path.join(root, 'missing-node.exe'), port: 8799, token: 'test-token' }));
+  await copyFile(new URL('../scripts/status.ps1', import.meta.url), path.join(root, 'scripts/status.ps1'));
+  await copyFile(new URL('../scripts/tailnet.mjs', import.meta.url), path.join(root, 'scripts/tailnet.mjs'));
+  const harness = path.join(root, 'test.ps1');
+  await psFile(harness, [
+    "$ErrorActionPreference = 'Stop'",
+    "function Get-ScheduledTask { $null }",
+    "function Invoke-RestMethod { [pscustomobject]@{schemaVersion=1;subscriptions=@();sources=@{}} }",
+    "& " + quote(path.join(root, 'scripts/status.ps1')),
+  ].join('\n'));
+  const result = powershell(harness);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /configured Node executable is missing/);
+});
+
 test('Windows firewall ownership rejects edited and unrecorded rules', windows, async () => {
   const root = await fixture();
   const marker = path.join(root, '.local/firewall-rule.json');

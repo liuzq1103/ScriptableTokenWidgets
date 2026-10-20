@@ -36,6 +36,8 @@ Authorization: Bearer <local-read-only-token>
 
 模型与厂商条目来自 Magpie 的实际用量，不做模型名白名单以外的裁剪：同一模型若以不同厂商前缀或不同大小写出现（如 `glm-5.3`、`GLM-5.3`、`zhipu/glm-5.3`），会合并为一行并累加各项计数。厂商标签按上游稳定 id 解析（`minimax-cn` → `MiniMax`、`zhipu` → `GLM`、`session-unknown` → `本地会话`）；无法识别的 id 显示为 `Unknown`，上游自由文本不会作为标签输出。
 
+`subscriptions` 的顺序即手机组件的显示顺序；中号组件最多显示 3 个套餐，大号显示全部。
+
 套餐字段：`id`、`provider`、`label`、`plan`、`updatedAt`、`stale`、`windows`。多个同厂商账号使用匿名序号，不输出账号身份。额度 windows 包含：
 - `label`：厂商窗口名。
 - `usedPercent`、`remainingPercent`：0–100；未知为 null。
@@ -43,7 +45,7 @@ Authorization: Bearer <local-read-only-token>
 - `expired`：窗口是否已到期；客户端在离线时也必须重新计算。
 - `amount`、`limit`：厂商明确提供时保留；不推断额度单位。
 
-指标字段：`requests`、`errors`、`inputTokens`、`outputTokens`、`cacheReadTokens`、`cacheWriteTokens`、`reasoningTokens`、`totalTokens`、`cacheHitPercent`。缓存命中率分母为输入＋缓存读取＋缓存写入，没有输入时为 null。
+指标字段：`requests`、`errors`、`inputTokens`、`outputTokens`、`cacheReadTokens`、`cacheWriteTokens`、`reasoningTokens`、`totalTokens`、`cacheHitPercent`。缓存命中率分母为输入＋缓存读取＋缓存写入，与 `totalTokens` 的口径一致；分母为 0 时为 null。
 
 总 Token = 输入＋输出＋缓存读取＋缓存写入。额度百分比是厂商独立指标，不与这个总数换算。费用与账户账单不属于本接口。
 

@@ -54,8 +54,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
 | 尺寸 | 内容 | Widget Parameter |
 |---|---|---|
 | 小号 | 单家剩余额度、重置倒计时、今日 Token | `codex`（默认）、`minimax`、`glm` |
-| 中号 | 三家主要窗口、重置倒计时、今日 Token | 留空 |
-| 大号 | 三家全部窗口、今日用量、七日趋势 | 留空 |
+| 中号 | 所选套餐的主要窗口（最多 3 个）、重置倒计时、今日 Token | 留空 |
+| 大号 | 所选套餐的全部窗口、今日用量、七日趋势 | 留空 |
 
 令牌保存在 iPhone 的 Keychain，不需要将任何密钥写入脚本。点击组件打开详情页；网页会立即移除地址中的令牌片段，仅在本标签页保存访问状态。
 

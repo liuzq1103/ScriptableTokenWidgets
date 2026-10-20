@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
-import { displayOptions } from '../backend/normalize.mjs';
+import { displayOptions, displayOverrides } from '../backend/normalize.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const directory = path.join(root, '.local');
@@ -14,16 +14,7 @@ let old = {};
 try { old = JSON.parse(await readFile(configFile, 'utf8')); } catch {}
 // Display choices are configured here, on the PC. The phone and the dashboard only
 // render what the service projects.
-const flags = new Map();
-for (let index = 2; index < process.argv.length; index += 2) {
-  const key = String(process.argv[index] || '').replace(/^--/, '');
-  if (key) flags.set(key, process.argv[index + 1]);
-}
-const overrides = {};
-if (flags.has('model-limit')) overrides.modelLimit = Number(flags.get('model-limit'));
-if (flags.has('provider-limit')) overrides.providerLimit = Number(flags.get('provider-limit'));
-if (flags.has('computer-limit')) overrides.computerLimit = Number(flags.get('computer-limit'));
-if (flags.has('subscriptions')) overrides.subscriptions = String(flags.get('subscriptions')).split(',').map(item => item.trim()).filter(Boolean);
+const overrides = displayOverrides(process.argv);
 let status;
 try { status = JSON.parse(execFileSync('tailscale', ['status', '--json'], { encoding: 'utf8', windowsHide: true, timeout: 15000 })); }
 catch { throw new Error('Connect Tailscale before configuring the service.'); }

@@ -13,14 +13,19 @@ export const number = value => typeof value === 'number' && Number.isFinite(valu
 const plans = /^(?:ChatGPT|Coding Plan|Free|Go|Plus|Pro|Team|Business|Enterprise|Starter|Lite|Basic|Standard|Max|Ultra)$/i;
 const windows = /^(?:\d{1,3}\s*(?:h|hours?|d|days?|minutes?|weeks?|months?|小时|天|周|月)|weekly|daily|monthly|yearly|tokens?|requests?|search|mcp|total)$/i;
 const modelFamily = /^(?:gpt[-.]?\d|o[1-9](?:-|$)|codex(?:-|$)|claude[-.](?:opus|sonnet|haiku|\d)|minimax-m\d|glm[-.]?\d|gemini[-.]?\d|qwen\d|deepseek[-.]?(?:v\d|r\d|chat|reasoner)|kimi[-.]?(?:k\d|latest)|grok[-.]?\d|mistral[-.]|llama[-.]?\d)/i;
-// Keys are stable upstream ids. Display names are folded in by lower-casing, so the
-// table stays idempotent when a stored label is normalized again after a restart.
-const providerNames = new Map(Object.entries({
+// Keys are stable upstream ids. The display name is registered as an alias as well,
+// so re-normalizing a stored label returns the same label instead of "Unknown".
+const PROVIDER_LABELS = {
   codex: 'Codex', 'minimax-cn': 'MiniMax', minimax: 'MiniMax', zhipu: 'GLM', glm: 'GLM',
   zcode: 'ZCode', gemini: 'Gemini', 'session-unknown': '本地会话',
   openai: 'OpenAI', anthropic: 'Anthropic', google: 'Google', deepseek: 'DeepSeek',
   qwen: 'Qwen', kimi: 'Kimi', moonshot: 'Moonshot', ollama: 'Ollama',
-}));
+};
+const providerNames = new Map();
+for (const [id, label] of Object.entries(PROVIDER_LABELS)) {
+  providerNames.set(id, label);
+  providerNames.set(label.toLowerCase(), label);
+}
 function typedLabel(value, type, index) {
   if (typeof value !== 'string') return type === 'computer' ? 'Device ' + (index + 1) : 'Unknown';
   if (type === 'computer') return /^[a-z0-9][a-z0-9_-]{0,62}$/i.test(value) ? value : 'Device ' + (index + 1);
@@ -158,6 +163,26 @@ export function displayOptions(value = {}) {
     computerLimit: limit(value.computerLimit, DEFAULT_DISPLAY.computerLimit),
     subscriptions: subscriptions.length ? subscriptions : [...DEFAULT_DISPLAY.subscriptions],
   };
+}
+// Command line overrides for the configuration script. An empty value never
+// replaces a saved choice; it is ignored so a typo cannot silently reset it.
+export function displayOverrides(argv = []) {
+  const flags = new Map();
+  for (let index = 2; index < argv.length; index += 2) {
+    const key = String(argv[index] || '').replace(/^--/, '');
+    if (key) flags.set(key, argv[index + 1]);
+  }
+  const overrides = {};
+  for (const [flag, key] of [['model-limit', 'modelLimit'], ['provider-limit', 'providerLimit'], ['computer-limit', 'computerLimit']]) {
+    if (!flags.has(flag)) continue;
+    const value = Number(flags.get(flag));
+    if (Number.isFinite(value)) overrides[key] = value;
+  }
+  if (flags.has('subscriptions')) {
+    const requested = String(flags.get('subscriptions')).split(',').map(item => item.trim()).filter(Boolean);
+    if (requested.length) overrides.subscriptions = requested;
+  }
+  return overrides;
 }
 export function project(snapshot, now = Date.now(), display = {}) {
   const options = displayOptions(display);

@@ -15,5 +15,7 @@ try {
     Write-Output ("{0}: {1}; observed: {2}" -f $name, $source.state, $source.observedAt)
   }
 } catch { Write-Output 'Local API unavailable. Check .local\service.log.'; exit 1 }
-$nodePath = (Get-Command node -ErrorAction Stop).Source
+$nodePath = $config.nodePath
+if (-not $nodePath) { $nodePath = (Get-Command node -ErrorAction Stop).Source }
+if (-not (Test-Path -LiteralPath $nodePath)) { throw 'The configured Node executable is missing. Run the installer again.' }
 & $nodePath (Join-Path $PSScriptRoot 'tailnet.mjs') status
