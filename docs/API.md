@@ -21,7 +21,7 @@ Authorization: Bearer <local-read-only-token>
 | subscriptions | 当前有效套餐卡片，按 `display.subscriptions` 过滤并排序 |
 | usage.today / week | 今日与七日指标；未读取时为 null |
 | trend | 七日逐日指标 |
-| rankings.models / providers / computers | 近七日排行，条数由 `display` 决定 |
+| rankings.models / agents / providers / computers | 近七日排行，条数由 `display` 决定 |
 
 来源 state 为 `ok`、`stale` 或 `unavailable`。读取失败或超过三分钟未成功观测时为 stale。跨日的今日读数也标记 stale，增加 `outdated: true` 并将 `usage.today` 设为 null。
 
@@ -30,6 +30,7 @@ Authorization: Bearer <local-read-only-token>
 | 字段 | 含义 | 默认 |
 |---|---|---|
 | modelLimit | `rankings.models` 条数，1–20 | 8 |
+| agentLimit | `rankings.agents` 条数，1–20 | 6 |
 | providerLimit | `rankings.providers` 条数，1–20 | 20 |
 | computerLimit | `rankings.computers` 条数，1–20 | 20 |
 | subscriptions | 套餐展示的 id 列表与顺序；`*` 表示全部 | `["codex","minimax","glm"]` |
@@ -45,9 +46,9 @@ Authorization: Bearer <local-read-only-token>
 - `expired`：窗口是否已到期；客户端在离线时也必须重新计算。
 - `amount`、`limit`：厂商明确提供时保留；不推断额度单位。
 
-指标字段：`requests`、`errors`、`inputTokens`、`outputTokens`、`cacheReadTokens`、`cacheWriteTokens`、`reasoningTokens`、`totalTokens`、`cacheHitPercent`。缓存命中率分母为输入＋缓存读取＋缓存写入，与 `totalTokens` 的口径一致；分母为 0 时为 null。
+指标字段：`requests`、`errors`、`inputTokens`、`outputTokens`、`cacheReadTokens`、`cacheWriteTokens`、`reasoningTokens`、`totalTokens`、`cacheHitPercent`、`cost`、`unpriced`、`outputTokensPerSecond`、`ttftMs`。缓存命中率分母为输入＋缓存读取＋缓存写入，与 `totalTokens` 的口径一致；分母为 0 时为 null。`cost` 为 Magpie 按实效价格的估算值，`unpriced` 为未计价请求数（估算可能偏低），货币单位以 Magpie 价格表为准；`outputTokensPerSecond` 为流式解码吞吐，`ttftMs` 为平均首字延迟，两者只统计有测量的请求，无测量时为 null。
 
-总 Token = 输入＋输出＋缓存读取＋缓存写入。额度百分比是厂商独立指标，不与这个总数换算。费用与账户账单不属于本接口。
+总 Token = 输入＋输出＋缓存读取＋缓存写入。额度百分比是厂商独立指标，不与这个总数换算；详情页与组件可在剩余/已用两种视图间切换。费用为 Magpie 的估算值，仅供参考；账户账单不属于本接口。
 
 ## 其他路由
 

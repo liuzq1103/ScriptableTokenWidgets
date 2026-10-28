@@ -22,7 +22,7 @@
       </div>
       <div class="notice" id="notice" role="status" hidden></div>
       <section aria-labelledby="quota-heading">
-        <div class="section-heading"><h2 id="quota-heading">订阅额度</h2><span class="muted">按套餐实际窗口更新</span></div>
+        <div class="section-heading"><h2 id="quota-heading">订阅额度</h2><div class="segmented" role="group" aria-label="额度视图"><button type="button" id="mode-remaining" aria-pressed="true">剩余</button><button type="button" id="mode-used" aria-pressed="false">已用</button></div><span class="muted">按套餐实际窗口更新</span></div>
         <div class="quota-grid" id="quotas"><div class="empty panel">正在读取套餐额度…</div></div>
       </section>
       <section class="activity-grid" aria-label="Token 用量">
@@ -32,6 +32,7 @@
           <p class="metric-caption" id="today-caption">正在读取用量</p>
           <div class="breakdown" id="breakdown"></div>
           <p class="reasoning" id="reasoning">推理用量尚未读取</p>
+          <p class="extras" id="today-extras"></p>
           <div class="card-foot"><span id="requests">— 次请求</span><span id="cache-hit">— 缓存命中</span></div>
         </article>
         <article class="panel trend-card">
@@ -41,17 +42,17 @@
           <div class="card-foot"><span>包含本机与已同步的服务器用量</span><span id="week-requests">— 次请求</span></div>
         </article>
       </section>
-      <section class="detail-grid" aria-label="近七日分布">
-        <article class="panel"><div class="section-heading"><h2>常用模型</h2><span class="muted">近七日 · Token</span></div><div id="models"></div></article>
-        <article class="panel"><div class="section-heading"><h2>来自你的设备</h2><span class="muted">近七日 · 已同步</span></div><div id="computers"></div><p class="fine-print">沿用 Magpie 的合并结果。设备离线时，显示已同步的历史用量。</p></article>
+      <section aria-label="近七日分布">
+        <div class="section-heading"><h2>近七日分布</h2><div class="segmented" role="group" aria-label="分布维度"><button type="button" id="tab-models" aria-pressed="true">模型</button><button type="button" id="tab-providers" aria-pressed="false">厂商</button><button type="button" id="tab-agents" aria-pressed="false">客户端</button><button type="button" id="tab-computers" aria-pressed="false">设备</button></div></div>
+        <article class="panel detail-panel"><div id="rank-body"></div><p class="muted rank-note" id="rank-note"></p></article>
       </section>
       <details class="install">
         <summary>添加到 iPhone 桌面 <span aria-hidden="true">↗</span></summary>
         <ol><li>在 iPhone 安装 Scriptable，并保持 Tailscale 已连接。</li><li>新建脚本，粘贴 <a href="/scriptable/SetupUsageWidget.js">SetupUsageWidget.js</a> 的完整内容并运行。</li><li>输入本服务地址与只读令牌。安装器会自动下载桌面组件。</li><li>长按桌面添加 Scriptable，选择 UsageWidget；推荐中号。</li></ol>
-        <p>小号组件参数：<code>codex</code>、<code>minimax</code> 或 <code>glm</code>。令牌只保存在本机 Keychain。</p>
+        <p>小号组件参数：<code>codex</code>、<code>minimax</code> 或 <code>glm</code>；追加 <code>|used</code> 改显已用（如 <code>glm|used</code>），中号组件填 <code>used</code> 可整体切换。令牌只保存在本机 Keychain。</p>
       </details>
       <footer><span>OBSERVED BY MAGPIE <span class="footer-separator">/</span> MADE FOR YOUR IPHONE</span><span id="updated">尚未更新</span></footer>
-      <p class="method">Token = 输入 + 输出 + 缓存读取 + 缓存写入；推理用量已包含在输出中，不重复相加。额度比例由套餐提供，与 Token 统计独立。</p>
+      <p class="method">Token = 输入 + 输出 + 缓存读取 + 缓存写入；推理用量已包含在输出中，不重复相加。额度比例由套餐提供，与 Token 统计独立。费用与速度为 Magpie 按实效价格的估算值，仅供参考。</p>
     </main>
   </div>
   <dialog id="auth">

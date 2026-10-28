@@ -34,6 +34,7 @@ PC 上 Magpie 的网关需要正在运行，默认地址为 `http://127.0.0.1:34
 | 键 | 含义 | 默认 |
 |---|---|---|
 | `modelLimit` | "常用模型"显示条数，1–20 | 8 |
+| `agentLimit` | 客户端排行条数，1–20 | 6 |
 | `providerLimit` | 厂商排行条数 | 20 |
 | `computerLimit` | 设备排行条数 | 20 |
 | `subscriptions` | 手机组件显示哪些套餐及顺序（`codex` / `minimax` / `glm`；`*` 表示全部） | `["codex","minimax","glm"]` |
@@ -113,7 +114,7 @@ node scripts/verify-live.mjs
 **这不是本服务的问题，也不是端口被封。** 先看 Safari 地址栏：
 
 - 地址栏是 `data:text/html;base64,…` → 是 **Scriptable 的 "Add to Home Screen" 功能**。它会生成一个内嵌的引导页（标题是脚本名，提示"Run script from home screen"，图标指向手机本机的 `http://localhost:8425/…`）并要求 Safari 打开它。新版 iOS Safari 禁止从其它 App 跳转打开 `data:` 网址，于是直接拦截并显示该提示，**根本还没访问到你的服务**。
-  - 处理：关掉那个页面即可。桌面组件要通过系统的小组件机制添加——长按桌面空白处 → 左上角"＋" → 搜索 **Scriptable** → 选**中号**小组件 → 长按组件 → "编辑 Widget" → 脚本选 `UsageWidget`（中号参数留空；小号才填 `codex` / `minimax` / `glm`）。
+  - 处理：关掉那个页面即可。桌面组件要通过系统的小组件机制添加——长按桌面空白处 → 左上角"＋" → 搜索 **Scriptable** → 选**中号**小组件 → 长按组件 → "编辑 Widget" → 脚本选 `UsageWidget`（中号参数留空，填 `used` 可整体改显已用；小号才填 `codex` / `minimax` / `glm`，可加 `|used`）。
   - 该功能创建的是"运行脚本的图标"，与本项目需要的 Scriptable 小组件不是一回事，正常流程本来就不需要它。
 - 地址栏是 `http://<Tailscale IP>:8799/…` → 才需要按下面的连接问题排查。本项目默认端口 8799 不在 Safari 的受限端口名单内；若地址栏里的端口与 `.local/iphone-setup.txt` 不一致，多半是地址敲错或用了旧地址。
 

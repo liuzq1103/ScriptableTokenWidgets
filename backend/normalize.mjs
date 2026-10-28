@@ -14,7 +14,7 @@ const plans = /^(?:ChatGPT|Coding Plan|Free|Go|Plus|Pro|Team|Business|Enterprise
 const windows = /^(?:\d{1,3}\s*(?:h|hours?|d|days?|minutes?|weeks?|months?|小时|天|周|月)|weekly|daily|monthly|yearly|tokens?|requests?|search|mcp|total)$/i;
 const modelFamily = /^(?:gpt[-.]?\d|o[1-9](?:-|$)|codex(?:-|$)|claude[-.](?:opus|sonnet|haiku|\d)|minimax-m\d|glm[-.]?\d|gemini[-.]?\d|qwen\d|deepseek[-.]?(?:v\d|r\d|chat|reasoner)|kimi[-.]?(?:k\d|latest)|grok[-.]?\d|mistral[-.]|llama[-.]?\d)/i;
 // Keys are stable upstream ids. The display name is registered as an alias as well,
-// so re-normalizing a stored label returns the same label instead of "Unknown".
+// so re-normalizing a stored label returns the same label instead of "Unknown"
 const PROVIDER_LABELS = {
   codex: 'Codex', 'minimax-cn': 'MiniMax', minimax: 'MiniMax', zhipu: 'GLM', glm: 'GLM',
   zcode: 'ZCode', gemini: 'Gemini', 'session-unknown': '本地会话',
@@ -26,32 +26,54 @@ for (const [id, label] of Object.entries(PROVIDER_LABELS)) {
   providerNames.set(id, label);
   providerNames.set(label.toLowerCase(), label);
 }
+// Agents are identified by a stable upstream id (claude, codex, gemini-cli...);
+// the id is registered as its own alias so stored labels survive restarts.
+const AGENT_LABELS = {
+  claude: 'Claude Code', codex: 'Codex', 'claude-desktop': 'Claude Desktop',
+  'gemini-cli': 'Gemini CLI', gemini: 'Gemini CLI', cursor: 'Cursor', windsurf: 'Windsurf',
+  copilot: 'Copilot', cline: 'Cline', roo: 'Roo Code', goose: 'Goose', opencode: 'OpenCode',
+  aider: 'Aider', magpie: 'magpie', 'python-urllib': 'Python', 'go-http-client': 'Go Client',
+};
+const agentNames = new Map();
+for (const [id, label] of Object.entries(AGENT_LABELS)) {
+  agentNames.set(id, label);
+  agentNames.set(label.toLowerCase(), label);
+}
 function typedLabel(value, type, index) {
   if (typeof value !== 'string') return type === 'computer' ? 'Device ' + (index + 1) : 'Unknown';
   if (type === 'computer') return /^[a-z0-9][a-z0-9_-]{0,62}$/i.test(value) ? value : 'Device ' + (index + 1);
   if (type === 'provider') return providerNames.get(value.toLowerCase()) || 'Unknown';
+  if (type === 'agent') return agentNames.get(value.toLowerCase()) ||
+    (/^[a-z0-9][a-z0-9-_.]{0,39}$/i.test(value) ? value : 'Unknown');
   // Accept model identifiers from known families; discard provider prefixes.
   if (value.length > 120 || /^(?:[a-z]:|[\/~.])/i.test(value) || value.includes('\\') || value.split('/').length > 2) return 'Unknown';
   const model = value.split('/').at(-1);
   return /^[a-z0-9][a-z0-9._-]{0,79}$/i.test(model) && modelFamily.test(model) ? model : 'Unknown';
 }
-// Upstream rows carry both a display name and a stable id. Providers resolve by id;
-// models resolve by name because upstream reuses one id per model string.
+// Upstream rows carry both a display name and a stable id. Providers and agents
+// resolve by id; models resolve by name because upstream reuses one id per model string.
 function labelSource(row, type) {
-  if (type === 'provider') return row.id || row.name || row.model;
+  if (type === 'provider' || type === 'agent') return row.id || row.name || row.model;
   return row.name || row.model || row.id;
 }
-
 export function metrics(raw = {}) {
   const inputTokens = number(raw.input), outputTokens = number(raw.output);
   const cacheReadTokens = number(raw.cache_read), cacheWriteTokens = number(raw.cache_write);
   const inputTotal = inputTokens + cacheReadTokens + cacheWriteTokens;
+  const decodeMs = number(raw.decode_ms), decodeOut = number(raw.decode_out);
+  const timed = number(raw.timed);
   return {
     requests: number(raw.calls), errors: number(raw.errors),
     inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
     reasoningTokens: number(raw.reasoning),
     totalTokens: inputTotal + outputTokens,
     cacheHitPercent: inputTotal ? cacheReadTokens / inputTotal * 100 : null,
+    // Cost is Magpie's own estimate at each model's effective prices; the
+    // currency unit follows the Magpie price table and is not inferred here.
+    cost: number(raw.cost), unpriced: number(raw.unpriced),
+    // Streaming decode throughput and mean first-token latency over measured requests.
+    outputTokensPerSecond: decodeMs ? Math.round(decodeOut / decodeMs * 1000 * 10) / 10 : null,
+    ttftMs: timed ? Math.round(number(raw.ttft_ms) / timed) : null,
   };
 }
 export function normalizeQuotas(raw, cache = {}) {
@@ -85,7 +107,8 @@ export function normalizeQuotas(raw, cache = {}) {
     return (ai < 0 ? PROVIDER_ORDER.length : ai) - (bi < 0 ? PROVIDER_ORDER.length : bi);
   });
 }
-const SUM_FIELDS = ['calls', 'errors', 'input', 'output', 'cache_read', 'cache_write', 'reasoning'];
+const SUM_FIELDS = ['calls', 'errors', 'input', 'output', 'cache_read', 'cache_write', 'reasoning',
+  'cost', 'unpriced', 'timed', 'ttft_ms', 'decode_ms', 'decode_out', 'decode_n'];
 // Internal ceiling; the effective number of rows is chosen by the display configuration.
 const RANKING_CAP = 50;
 // The grouping key of a model row. Rows whose name does not pass the label rules
@@ -130,28 +153,27 @@ export function normalizeUsage(raw) {
     })),
     models: ranking(raw.by?.model, 'model'),
     providers: ranking(raw.by?.provider, 'provider'),
+    agents: ranking(raw.by?.agent, 'agent'),
     computers: ranking(raw.computers, 'computer'),
   };
 }
-
 export function sanitizeCachedLabels(data, key) {
   if (key === 'quotas') return normalizeQuotas({ data: data.map(card => ({
     provider: card.provider === 'glm' ? 'zhipu' : card.provider, plan: card.plan, readAt: card.updatedAt,
     windows: card.windows.map(window => ({ ...window, name: window.label, used: window.usedPercent })),
   })) });
-  const cleanRows = (rows, type) => rows.map((row, index) => ({ ...row, label: typedLabel(row.label, type, index) }));
+  const cleanRows = (rows, type) => (rows || []).map((row, index) => ({ ...row, label: typedLabel(row.label, type, index) }));
   return { ...data,
     trend: data.trend.map((row, index) => ({ ...row, label: iso(row.at) ? shanghaiDay(Date.parse(row.at)) : 'Day ' + (index + 1) })),
     models: cleanRows(data.models, 'model'), providers: cleanRows(data.providers, 'provider'),
-    computers: cleanRows(data.computers, 'computer'),
+    agents: cleanRows(data.agents, 'agent'), computers: cleanRows(data.computers, 'computer'),
   };
 }
-
 export const shanghaiDay = value => new Date(value + 8 * 3600_000).toISOString().slice(0, 10);
 // Display choices live in the PC-side configuration; the phone and the dashboard
 // only render what the service projects.
 export const DEFAULT_DISPLAY = {
-  modelLimit: 8, providerLimit: 20, computerLimit: 20, subscriptions: ['codex', 'minimax', 'glm'],
+  modelLimit: 8, agentLimit: 6, providerLimit: 20, computerLimit: 20, subscriptions: ['codex', 'minimax', 'glm'],
 };
 const SUBSCRIPTION_ID = /^[a-z][a-z0-9-]{0,19}$/;
 export function displayOptions(value = {}) {
@@ -166,6 +188,7 @@ export function displayOptions(value = {}) {
     .map(id => id.toLowerCase());
   return {
     modelLimit: limit(value.modelLimit, DEFAULT_DISPLAY.modelLimit),
+    agentLimit: limit(value.agentLimit, DEFAULT_DISPLAY.agentLimit),
     providerLimit: limit(value.providerLimit, DEFAULT_DISPLAY.providerLimit),
     computerLimit: limit(value.computerLimit, DEFAULT_DISPLAY.computerLimit),
     subscriptions: subscriptions.length ? subscriptions : [...DEFAULT_DISPLAY.subscriptions],
@@ -180,7 +203,7 @@ export function displayOverrides(argv = []) {
     if (key) flags.set(key, argv[index + 1]);
   }
   const overrides = {};
-  for (const [flag, key] of [['model-limit', 'modelLimit'], ['provider-limit', 'providerLimit'], ['computer-limit', 'computerLimit']]) {
+  for (const [flag, key] of [['model-limit', 'modelLimit'], ['agent-limit', 'agentLimit'], ['provider-limit', 'providerLimit'], ['computer-limit', 'computerLimit']]) {
     if (!flags.has(flag)) continue;
     const value = Number(flags.get(flag));
     if (Number.isFinite(value)) overrides[key] = value;
@@ -231,6 +254,7 @@ export function project(snapshot, now = Date.now(), display = {}) {
     trend: week?.trend || [],
     rankings: {
       models: (week?.models || []).slice(0, options.modelLimit),
+      agents: (week?.agents || []).slice(0, options.agentLimit),
       providers: (week?.providers || []).slice(0, options.providerLimit),
       computers: (week?.computers || []).slice(0, options.computerLimit),
     },

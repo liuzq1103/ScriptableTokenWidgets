@@ -48,4 +48,4 @@ const instructions = [
 await writeFile(path.join(directory, 'iphone-setup.txt'), instructions + '\n', { mode: 0o600 });
 console.log('Configuration ready. Private connection details: .local/iphone-setup.txt');
 console.log('Detected ' + phoneIPs.length + ' iOS device(s). No secrets printed.');
-console.log('Display settings: ' + config.display.modelLimit + ' models, ' + config.display.subscriptions.join(', ') + '.');
+console.log('Display settings: ' + config.display.modelLimit + ' models, ' + config.display.agentLimit + ' agents, ' + config.display.subscriptions.join(', ') + '.');

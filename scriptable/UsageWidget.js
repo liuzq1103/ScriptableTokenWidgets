@@ -1,5 +1,8 @@
 // UsageWidget · ScriptableTokenWidgets · MIT
 // Configure once with SetupUsageWidget.js. No credentials belong in this file.
+// Widget parameter: a provider id for the small family (codex, minimax, glm),
+// optionally "|used" to show consumed instead of remaining percent (glm|used).
+// On medium and large families "used" alone flips every card.
 const SETTINGS_KEY = "usage-bridge-v1";
 const fm = FileManager.local();
 const cachePath = fm.joinPath(fm.documentsDirectory(), "usage-bridge-cache.json");
@@ -52,17 +55,27 @@ function compact(value) {
   if (value >= 1e3) return (value / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
   return String(Math.round(value));
 }
+function cost(value) {
+  if (value == null) return "—";
+  return value >= 100 ? value.toFixed(0) : value.toFixed(2);
+}
 function expired(window) {
   return window.expired || !!window.resetsAt && Date.parse(window.resetsAt) <= Date.now();
 }
-function remaining(window) { return expired(window) ? null : window.remainingPercent; }
-function percent(window) { const value = remaining(window); return value == null ? "—" : Math.round(value) + "%"; }
+// Both directions read the same vendor percentage; only the view changes.
+function value(window) {
+  if (expired(window)) return null;
+  return showUsed ? window.usedPercent : window.remainingPercent;
+}
+function percent(window) { const current = value(window); return current == null ? "—" : Math.round(current) + "%"; }
 function accent(window) {
-  const value = remaining(window);
-  return value == null ? colors.muted : value <= 10 ? colors.critical : value <= 25 ? colors.warning : colors.text;
+  const current = value(window);
+  if (current == null) return colors.muted;
+  const consumed = showUsed ? current : 100 - current;
+  return consumed >= 90 ? colors.critical : consumed >= 75 ? colors.warning : colors.text;
 }
 function reset(window) {
-  if (expired(window)) return "已到期 · 待更新";
+  if (expired(window)) return "已到期· 待更新";
   if (!window.resetsAt) return "重置时间未知";
   const mins = Math.ceil((Date.parse(window.resetsAt) - Date.now()) / 60000);
   if (mins < 60) return mins + " 分钟后重置";
@@ -80,10 +93,11 @@ function bar(parent, window, width) {
   const ctx = new DrawContext();
   ctx.size = new Size(width, 4); ctx.opaque = false; ctx.respectScreenScale = true;
   ctx.setFillColor(colors.track); ctx.fillRect(new Rect(0, 0, width, 4));
-  const value = remaining(window);
-  if (value != null) {
-    ctx.setFillColor(value <= 10 ? colors.critical : value <= 25 ? colors.warning : colors.fill);
-    ctx.fillRect(new Rect(0, 0, width * Math.max(0, Math.min(100, value)) / 100, 4));
+  const current = value(window);
+  if (current != null) {
+    const consumed = showUsed ? current : 100 - current;
+    ctx.setFillColor(consumed >= 90 ? colors.critical : consumed >= 75 ? colors.warning : colors.fill);
+    ctx.fillRect(new Rect(0, 0, width * Math.max(0, Math.min(100, current)) / 100, 4));
   }
   const image = parent.addImage(ctx.getImage()); image.imageSize = new Size(width, 4);
 }
@@ -92,7 +106,10 @@ function header(status) {
   text(row, "usage.", 15, colors.text, "medium"); row.addSpacer();
   text(row, status, 9, cached ? colors.warning : colors.muted);
 }
-const emptyWindow = { label: "Quota", remainingPercent: null, resetsAt: null };
+const parameter = String(args.widgetParameter || "").split("|").map(part => part.trim().toLowerCase()).filter(Boolean);
+const showUsed = parameter.includes("used");
+const requested = parameter.find(part => part !== "used") || "codex";
+const emptyWindow = { label: "Quota", remainingPercent: null, usedPercent: null, resetsAt: null };
 if (!settings || !data || data.schemaVersion !== 1) {
   header("未连接"); widget.addSpacer(18);
   text(widget, settings ? "暂时无法连接" : "先连接你的用量", 16, colors.text, "medium");
@@ -107,7 +124,6 @@ if (!settings || !data || data.schemaVersion !== 1) {
   const status = failure || (cached ? "缓存 " : "") + clock(observations[0]);
   header(status);
   if (family === "small") {
-    const requested = String(args.widgetParameter || "codex").trim().toLowerCase();
     const card = data.subscriptions.find(c => c.provider === requested);
     widget.addSpacer(12);
     const primary = card && card.windows[0] || emptyWindow;
@@ -118,7 +134,7 @@ if (!settings || !data || data.schemaVersion !== 1) {
     widget.addSpacer(7); bar(widget, primary, 120); widget.addSpacer(7);
     text(widget, reset(primary), 9, colors.muted);
     if (card && card.windows[1]) {
-      widget.addSpacer(3); text(widget, windowLabel(card.windows[1]) + " 剩余 " + percent(card.windows[1]), 9, colors.muted);
+      widget.addSpacer(3); text(widget, windowLabel(card.windows[1]) + (showUsed ? " 已用 " : " 剩余 ") + percent(card.windows[1]), 9, colors.muted);
     }
     widget.addSpacer();
     text(widget, "今日 " + compact(data.usage.today && data.usage.today.totalTokens) + " token", 10, colors.muted);
@@ -142,7 +158,7 @@ if (!settings || !data || data.schemaVersion !== 1) {
     widget.addSpacer();
     const foot = widget.addStack();
     text(foot, "今日 " + compact(data.usage.today && data.usage.today.totalTokens) + " token", 10, colors.muted);
-    foot.addSpacer(); text(foot, "剩余额度 · 含缓存用量", 8, colors.muted);
+    foot.addSpacer(); text(foot, (showUsed ? "已用额度" : "剩余额度") + "· 含缓存用量", 8, colors.muted);
   } else {
     widget.addSpacer(14);
     // The large widget has a fixed height; the remaining subscriptions stay in the detail page.
@@ -161,14 +177,16 @@ if (!settings || !data || data.schemaVersion !== 1) {
       const primary = windows[0];
       bar(widget, primary, 290);
       widget.addSpacer(5);
-      text(widget, reset(primary) + (card.stale ? " · 缓存额度" : ""), 9, colors.muted);
+      text(widget, reset(primary) + (card.stale ? "· 缓存额度" : ""), 9, colors.muted);
       widget.addSpacer(16);
     }
     if (!shown.length) text(widget, "暂无套餐", 13, colors.muted, "medium");
     else if (all.length > shown.length) text(widget, "另有 " + (all.length - shown.length) + " 个套餐，见详情页", 9, colors.muted);
+    const week = data.usage && data.usage.week;
     const totals = widget.addStack();
     text(totals, "今日 " + compact(data.usage.today && data.usage.today.totalTokens), 19, colors.text, "medium");
-    totals.addSpacer(); text(totals, "近七日 " + compact(data.usage.week && data.usage.week.totalTokens), 10, colors.muted);
+    totals.addSpacer();
+    text(totals, "近七日 " + compact(week && week.totalTokens) + (week && week.cost != null ? "· 预估 " + cost(week.cost) : ""), 10, colors.muted);
     widget.addSpacer(10);
     const rows = data.trend || [], ctx = new DrawContext();
     ctx.size = new Size(290, 49); ctx.opaque = false; ctx.respectScreenScale = true;
@@ -186,7 +204,7 @@ if (!settings || !data || data.schemaVersion !== 1) {
       text(dates, r.at ? new Date(r.at).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric" }) : r.label, 8, colors.muted);
     });
     widget.addSpacer();
-    text(widget, "Token 含缓存 · 点击查看详情", 9, colors.muted);
+    text(widget, "Token 含缓存· 点击查看详情", 9, colors.muted);
   }
 }
 Script.setWidget(widget);

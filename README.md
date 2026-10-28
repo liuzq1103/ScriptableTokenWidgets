@@ -19,8 +19,9 @@ flowchart LR
   W -->|点击| D[手机详情页]
 ```
 
-- 所选套餐的剩余比例、5 小时／周额度窗口与重置时间，以 Magpie 实际返回为准。
-- 今日 Token、七日趋势、模型排行和两端设备用量，包含 Magpie 已识别的原生 Agent 日志。模型与厂商条目来自实际用量，新增模型无需改代码。
+- 所选套餐的剩余比例、5 小时／周额度窗口与重置时间，以 Magpie 实际返回为准；详情页与组件均可切换剩余／已用两种视图。
+- 今日 Token、七日趋势、模型／厂商／客户端排行和两端设备用量，包含 Magpie 已识别的原生 Agent 日志。模型与厂商条目来自实际用量，新增模型无需改代码。
+- 预估费用与流式输出速度为 Magpie 的估算值，在详情页与排行的费用列中展示。
 - Token 为输入＋输出＋缓存读取＋缓存写入；推理用量单列，已含在输出中。
 - 深浅色自适应；网页也可手动切换。断网保留最后结果，窗口到期不会伪造新额度。
 - 后端每分钟汇总，组件申请约五分钟刷新，实际由 iOS 调度。
@@ -53,7 +54,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
 
 | 尺寸 | 内容 | Widget Parameter |
 |---|---|---|
-| 小号 | 单家剩余额度、重置倒计时、今日 Token | `codex`（默认）、`minimax`、`glm` |
+| 小号 | 单家额度、重置倒计时、今日 Token | `codex`（默认）、`minimax`、`glm`；加 `|used` 改显已用 |
 | 中号 | 所选套餐的主要窗口（最多 3 个）、重置倒计时、今日 Token | 留空 |
 | 大号 | 所选套餐的全部窗口（最多 4 个）、今日用量、七日趋势 | 留空 |
 
@@ -76,7 +77,7 @@ node scripts/configure.mjs --model-limit 12 --subscriptions codex,minimax,glm
 .\scripts\restart.ps1
 ```
 
-`modelLimit` 控制"常用模型"条数，`subscriptions` 控制手机组件显示哪些套餐及顺序。模型与厂商条目来自 Magpie 的实际用量，新增模型无需改代码。
+`modelLimit` 控制"常用模型"条数，`agentLimit` 控制"客户端"条数，`subscriptions` 控制手机组件显示哪些套餐及顺序。中号与大号组件在 Widget Parameter 填 `used` 可整体切换为已用视图。模型与厂商条目来自 Magpie 的实际用量，新增模型无需改代码。
 
 任务在当前用户登录后启动；PC 睡眠、关机或未登录时，手机显示最后缓存。卸载保留本地配置与缓存，并只清理本项目创建的转发。
 

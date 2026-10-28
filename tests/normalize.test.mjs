@@ -169,3 +169,45 @@ test('the documented cache hit rate uses input plus both cache directions', () =
   assert.equal(metrics({ input: 5 }).cacheHitPercent, 0);
   assert.equal(metrics({}).cacheHitPercent, null);
 });
+
+test('cost, unpriced and measured speed join the metrics', () => {
+  const data = metrics({ calls: 2, input: 10, output: 5, cache_read: 30, cache_write: 0,
+    cost: 1.234, unpriced: 3, timed: 10, ttft_ms: 15000, decode_ms: 2000, decode_out: 90, decode_n: 5 });
+  assert.equal(data.cost, 1.234);
+  assert.equal(data.unpriced, 3);
+  assert.equal(data.outputTokensPerSecond, 45);
+  assert.equal(data.ttftMs, 1500);
+  assert.equal(metrics({}).outputTokensPerSecond, null);
+  assert.equal(metrics({}).cost, 0);
+});
+test('agent ranking labels resolve by id; free text and icons never pass through', () => {
+  const raw = makeRawUsage('7d', now);
+  raw.by.agent = [
+    { id: 'claude', name: 'FREE TEXT NAME', calls: 2, input: 30, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, icon: 'claudecode-color' },
+    { id: 'python-urllib', name: 'Python-urllib', calls: 1, input: 10, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 },
+    { id: 'unknown-agent-7', name: 'PRIVATE_PROMPT', calls: 1, input: 5, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 },
+    { id: 'evil path', name: 'x', calls: 1, input: 1, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 },
+  ];
+  const agents = normalizeUsage(raw).agents;
+  assert.deepEqual(agents.map(a => a.label), ['Claude Code', 'Python', 'unknown-agent-7', 'Unknown']);
+  const text = JSON.stringify(agents);
+  assert.ok(!text.includes('FREE TEXT NAME'));
+  assert.ok(!text.includes('icon'));
+  assert.ok(!text.includes('PRIVATE_PROMPT'));
+});
+test('agent rows from an older snapshot keep labels; missing rows stay empty', () => {
+  const raw = makeRawUsage('7d', now);
+  raw.by.agent = [{ id: 'claude', name: 'Claude Code', ...sample(10) }];
+  const cleaned = sanitizeCachedLabels(normalizeUsage(raw), 'week');
+  assert.equal(cleaned.agents[0].label, 'Claude Code');
+  const older = sanitizeCachedLabels({ ...normalizeUsage(raw), agents: undefined }, 'week');
+  assert.deepEqual(older.agents, []);
+});
+test('the display configuration limits agent rows like the other rankings', () => {
+  assert.equal(displayOptions({ agentLimit: 999 }).agentLimit, 20);
+  assert.equal(displayOptions({}).agentLimit, 6);
+  assert.deepEqual(displayOverrides(['node', 'configure.mjs', '--agent-limit', '4']), { agentLimit: 4 });
+  const snapshot = { failures: {}, parts: { week: { observedAt: new Date(now).toISOString(), data: normalizeUsage(makeRawUsage('7d', now)) } } };
+  assert.equal(project(snapshot, now, { agentLimit: 2 }).rankings.agents.length, 2);
+  assert.equal(project(snapshot, now).rankings.agents[0].label, 'Claude Code');
+});

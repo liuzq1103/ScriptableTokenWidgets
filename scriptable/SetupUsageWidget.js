@@ -38,7 +38,7 @@ if (await alert.presentAlert() !== -1) {
     Keychain.set("usage-bridge-v1", JSON.stringify({ baseURL, token }));
     const done = new Alert();
     done.title = "已连接";
-    done.message = "UsageWidget 已安装。长按桌面添加 Scriptable 中号小组件，选择 UsageWidget。\n\n小号参数可填 codex、minimax 或 glm。再次运行本安装器可更新组件。";
+    done.message = "UsageWidget 已安装。长按桌面添加 Scriptable 中号小组件，选择 UsageWidget。\n\n小号参数可填 codex、minimax 或 glm；加 |used 改显已用，如 glm|used。再次运行本安装器可更新组件。";
     done.addAction("预览组件"); done.addCancelAction("完成");
     if (await done.presentAlert() !== -1) Safari.open("scriptable:///run?scriptName=UsageWidget");
   } catch (error) {

@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { makeDemo } from '../fixtures/demo.mjs';
 const source = await readFile(new URL('../scriptable/UsageWidget.js', import.meta.url), 'utf8');
 const fixed = Date.parse('2026-06-12T04:00:00Z');
-async function render(family, { offline = false, configured = true, cached = true, expired = false, subscriptions = null } = {}) {
+async function render(family, { offline = false, configured = true, cached = true, expired = false, subscriptions = null, parameter = 'codex' } = {}) {
   const data = makeDemo(fixed);
   if (expired) data.subscriptions.forEach(c => c.windows.forEach(w => { w.resetsAt = new Date(fixed - 60000).toISOString(); }));
   if (subscriptions) data.subscriptions = subscriptions;
@@ -21,7 +21,7 @@ async function render(family, { offline = false, configured = true, cached = tru
   class FakeDate extends Date { constructor(...args) { super(...(args.length ? args : [fixed])); } static now() { return fixed; } }
   const fm = { documentsDirectory: () => '/', joinPath: (a, b) => a + b, fileExists: () => cached, readString: () => JSON.stringify(data), writeString() {} };
   const context = {
-    Date: FakeDate, console, config: { widgetFamily: family, runsInWidget: true }, args: { widgetParameter: 'codex' },
+    Date: FakeDate, console, config: { widgetFamily: family, runsInWidget: true }, args: { widgetParameter: parameter },
     Keychain: { get() { if (!configured) throw new Error('unset'); return JSON.stringify(settings); } },
     FileManager: { local: () => fm }, Device: { isUsingDarkAppearance: () => false },
     Color, ListWidget: Stack, DrawContext,
@@ -72,4 +72,17 @@ test('a fixed height widget never overflows and points at the detail page instea
   assert.ok(large.some(t => t.includes('另有 2 个套餐')));
   const medium = (await render('medium', { subscriptions: many })).texts;
   assert.ok(medium.includes('GLM') && !medium.includes('ZCODE'), 'the medium widget keeps to three columns');
+});
+
+
+test('the widget parameter selects a provider and the percent direction', async () => {
+  const remaining = await render('small', { parameter: 'codex' });
+  assert.ok(remaining.texts.some(t => t.includes('59%')));
+  assert.ok(!remaining.texts.some(t => t.includes('41%')));
+  const used = await render('small', { parameter: 'codex|used' });
+  assert.ok(used.texts.some(t => t.includes('41%')));
+  assert.ok(!used.texts.some(t => t.includes('59%')));
+  const medium = await render('medium', { parameter: 'used' });
+  assert.ok(medium.texts.some(t => t.includes('41%')));
+  assert.ok(medium.texts.some(t => t.includes('已用额度')));
 });
