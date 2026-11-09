@@ -17,7 +17,8 @@ const collector = new Collector({
 });
 await collector.refresh();
 const result = collector.overview();
-for (const source of Object.values(result.sources)) assert.equal(source.state, 'ok');
+for (const key of ['today', 'week']) assert.equal(result.sources[key].state, 'ok');
+assert.notEqual(result.sources.quotas.state, 'unavailable');
 for (const [period, key] of [['today', 'today'], ['7d', 'week']]) {
   const raw = originals[period], normalized = result.usage[key];
   assert.equal(normalized.totalTokens, raw.input + raw.output + raw.cache_read + raw.cache_write);
@@ -63,4 +64,13 @@ for (const [index, row] of result.trend.entries()) {
   assert.equal(row.totalTokens, total(raw));
 }
 assert.ok(result.subscriptions.length > 0);
-console.log('Live verification passed: merged today/7d totals, daily trend, ' + result.rankings.models.length + ' models, ' + result.rankings.computers.length + ' devices and ' + result.subscriptions.length + ' subscriptions. No credentials or private usage printed.');
+for (const card of result.subscriptions) {
+  assert.ok(card.windows.some(window => window.usedPercent !== null));
+  for (const window of card.windows) {
+    if (window.usedPercent === null) continue;
+    assert.ok(window.usedPercent >= 0 && window.usedPercent <= 100);
+    assert.equal(window.remainingPercent, 100 - window.usedPercent);
+  }
+}
+const cached = result.subscriptions.filter(card => card.stale).length;
+console.log('Live verification passed: merged today/7d totals, daily trend, ' + result.rankings.models.length + ' models, ' + result.rankings.computers.length + ' devices and ' + result.subscriptions.length + ' subscriptions (' + cached + ' cached). No credentials or private usage printed.');

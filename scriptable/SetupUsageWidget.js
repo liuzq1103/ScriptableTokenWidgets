@@ -1,10 +1,12 @@
 // SetupUsageWidget · ScriptableTokenWidgets · MIT
 // Paste this entire script into Scriptable, then run it once.
+let saved = {};
+try { saved = JSON.parse(Keychain.get("usage-bridge-v1")) || {}; } catch {}
 const alert = new Alert();
 alert.title = "连接你的用量";
 alert.message = "先连接 Tailscale。输入 PC 上生成的服务地址与只读令牌。无需填写模型 API Key。";
-alert.addTextField("http://你的 Tailscale IP:8799", "");
-alert.addSecureTextField("只读访问令牌", "");
+alert.addTextField("http://你的 Tailscale IP:8799", typeof saved.baseURL === "string" ? saved.baseURL : "");
+alert.addSecureTextField("只读访问令牌", typeof saved.token === "string" ? saved.token : "");
 alert.addAction("验证并安装"); alert.addCancelAction("取消");
 if (await alert.presentAlert() !== -1) {
   const baseURL = alert.textFieldValue(0).trim().replace(/\/+$/, "");
@@ -38,7 +40,7 @@ if (await alert.presentAlert() !== -1) {
     Keychain.set("usage-bridge-v1", JSON.stringify({ baseURL, token }));
     const done = new Alert();
     done.title = "已连接";
-    done.message = "UsageWidget 已安装。长按桌面添加 Scriptable 中号小组件，选择 UsageWidget。\n\n小号参数可填 codex、minimax 或 glm；加 |used 改显已用，如 glm|used。再次运行本安装器可更新组件。";
+    done.message = "UsageWidget 已安装。长按桌面添加 Scriptable 中号或大号小组件，选择 UsageWidget。每页最多六个订阅，布局随数量自动调整。\n\n中号和大号参数留空即可；page=2 查看第二页，used 改显已用，可组合 page=2|used。小号填 codex、minimax 或 glm，可加 |used。再次运行本安装器可更新组件。";
     done.addAction("预览组件"); done.addCancelAction("完成");
     if (await done.presentAlert() !== -1) Safari.open("scriptable:///run?scriptName=UsageWidget");
   } catch (error) {

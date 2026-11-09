@@ -28,11 +28,33 @@ for (const [id, label] of Object.entries(PROVIDER_LABELS)) {
 }
 // Agents are identified by a stable upstream id (claude, codex, gemini-cli...);
 // the id is registered as its own alias so stored labels survive restarts.
+// The list is every agent Magpie knows (its internal/agent registry), so an
+// agent Magpie adds later is still shown, by its id, until this map grows.
 const AGENT_LABELS = {
-  claude: 'Claude Code', codex: 'Codex', 'claude-desktop': 'Claude Desktop',
-  'gemini-cli': 'Gemini CLI', gemini: 'Gemini CLI', cursor: 'Cursor', windsurf: 'Windsurf',
-  copilot: 'Copilot', cline: 'Cline', roo: 'Roo Code', goose: 'Goose', opencode: 'OpenCode',
-  aider: 'Aider', magpie: 'magpie', 'python-urllib': 'Python', 'go-http-client': 'Go Client',
+  agy: 'Antigravity CLI', aionui: 'AionUi', air: 'JetBrains Air', 'air-ide': 'Air (JetBrains IDEs)',
+  alma: 'Alma', ante: 'Ante', antigravity: 'Antigravity', aside: 'Aside', astrbot: 'AstrBot',
+  atomcode: 'AtomCode', cherrystudio: 'Cherry Studio', cindy: 'Cindy', claude: 'Claude Code',
+  'claude-desktop': 'Claude Desktop', 'claude-science': 'Claude Science', cline: 'Cline',
+  codebuddy: 'CodeBuddy', codex: 'Codex', commandcode: 'Command Code', copilot: 'Copilot CLI',
+  'copilot-jetbrains': 'Copilot (JetBrains)', crush: 'Crush', curl: 'curl', cursor: 'Cursor CLI',
+  'cursor-local': 'Cursor Private Inference', deveco: 'DevEco Code', devin: 'Devin', droid: 'Droid',
+  'ds-bot': 'DS Bot', dsh: 'DeepSeek Harness', empryo: 'Empryo', fx: 'fx', gemini: 'Gemini CLI',
+  'gemini-cli': 'Gemini CLI', goose: 'Goose', grok: 'Grok Build', 'grok-app': 'Grok App',
+  hanako: 'OpenHanako', hermes: 'Hermes Agent', jcode: 'jcode', kimi: 'Kimi Code',
+  'kimi-code-desktop': 'Kimi Code Desktop', kirocrew: 'Kiro Crew', liveagent: 'LiveAgent',
+  lody: 'Lody', magpie: 'magpie', mimocode: 'MiMo Code', 'minimax-code': 'MiniMax Code',
+  morph: 'Mister Morph', mothx: 'MothX', muse: 'Muse Code', newmax: 'NewMax', omo: 'OmO',
+  omp: 'omp', openbot: 'OpenBot', openchamber: 'OpenChamber', openclaw: 'OpenClaw',
+  opencode: 'OpenCode', openmausbot: 'OpenMausBot', openpencil: 'OpenPencil', pencil: 'Pencil',
+  penguin: 'PenguinHarness', pi: 'Pi', 'pi-desktop': 'PI-Desktop', 'prime-agent': 'Prime Agent',
+  qoder: 'Qoder', 'qoder-cn': 'Qoder CN', qwen: 'Qwen Code', qwenpaw: 'QwenPaw', raft: 'Raft',
+  raycast: 'Raycast', reasonix: 'Reasonix Studio', snow: 'Snow CLI', stepcode: 'StepCode',
+  t3code: 'T3 Code', vscode: 'VS Code', 'vscode-insiders': 'VS Code Insiders', vscodium: 'VSCodium',
+  workbuddy: 'WorkBuddy', 'workbuddy-ai': 'WorkBuddy AI',
+  zcode: 'ZCode', zed: 'Zed', 'zoo-code': 'Zoo Code',
+  // Clients the gateway only knows by the User-Agent they send.
+  aider: 'Aider', roo: 'Roo Code', windsurf: 'Windsurf',
+  'python-urllib': 'Python', 'go-http-client': 'Go Client',
 };
 const agentNames = new Map();
 for (const [id, label] of Object.entries(AGENT_LABELS)) {
@@ -43,8 +65,18 @@ function typedLabel(value, type, index) {
   if (typeof value !== 'string') return type === 'computer' ? 'Device ' + (index + 1) : 'Unknown';
   if (type === 'computer') return /^[a-z0-9][a-z0-9_-]{0,62}$/i.test(value) ? value : 'Device ' + (index + 1);
   if (type === 'provider') return providerNames.get(value.toLowerCase()) || 'Unknown';
-  if (type === 'agent') return agentNames.get(value.toLowerCase()) ||
-    (/^[a-z0-9][a-z0-9-_.]{0,39}$/i.test(value) ? value : 'Unknown');
+  if (type === 'agent') {
+    const known = agentNames.get(value.toLowerCase());
+    if (known) return known;
+    // An agent running in a WSL distro carries the distro after an "@"
+    // (codex@wsl:Ubuntu-22.04); the agent itself is the part before it.
+    const at = value.indexOf('@');
+    if (at > 0) {
+      const base = agentNames.get(value.slice(0, at).toLowerCase());
+      if (base) return base;
+    }
+    return /^[a-z0-9][a-z0-9-_.]{0,39}$/i.test(value) ? value : 'Unknown';
+  }
   // Accept model identifiers from known families; discard provider prefixes.
   if (value.length > 120 || /^(?:[a-z]:|[\/~.])/i.test(value) || value.includes('\\') || value.split('/').length > 2) return 'Unknown';
   const model = value.split('/').at(-1);
@@ -76,20 +108,66 @@ export function metrics(raw = {}) {
     ttftMs: timed ? Math.round(number(raw.ttft_ms) / timed) : null,
   };
 }
+// A subscription account is told apart by the identity Magpie reports for it.
+// Only the part before the "@" is kept: it names the account on screen without
+// carrying the address itself.
+const accountName = value => {
+  if (typeof value !== 'string') return null;
+  const local = value.split('@')[0] || '';
+  return /^[A-Za-z0-9._-]{1,32}$/.test(local) ? local : null;
+};
+// Magpie lets the user name an account of their own ("magpie accounts alias
+// codex <email> <name>"). The name is the user's own text for it, so it may be
+// shown, but only as a short plain label: no path, no address, no markup.
+const aliasName = value => {
+  if (typeof value !== 'string') return null;
+  const name = value.trim();
+  return /^[\p{L}\p{N}][\p{L}\p{N} ._*'-]{0,31}$/u.test(name) ? name : null;
+};
 export function normalizeQuotas(raw, cache = {}) {
   if (!raw || !Array.isArray(raw.data)) throw new Error('Invalid quota response');
   const counts = {};
+  // How many cards a family has: one account keeps the plain name, several are
+  // named after their own identity so they never swap places.
+  const familySize = new Map();
+  for (const card of raw.data) {
+    const family = PROVIDERS[card?.provider]?.id;
+    if (family) familySize.set(family, (familySize.get(family) || 0) + 1);
+  }
+  const taken = new Set();
   return raw.data.flatMap(card => {
-    const provider = PROVIDERS[card.provider];
+    const provider = PROVIDERS[card?.provider];
     if (!provider || !Array.isArray(card.windows)) return [];
     const index = counts[provider.id] = (counts[provider.id] || 0) + 1;
-    const cached = Object.values(cache).filter(item => item?.quota?.provider === card.provider);
-    const updatedAt = iso(card.readAt) || (cached.length === 1 ? iso(cached[0].at) : null);
+    const account = accountName(card?.user ?? card?.account);
+    const alias = aliasName(card?.alias);
+    // A cached reading belongs to the account it was taken for, so two accounts
+    // of one vendor never borrow each other's timestamp.
+    const cached = Object.values(cache || {}).filter(item => item?.quota?.provider === card.provider &&
+      (!account || accountName(item.quota.user) === account));
+    const singleAccount = familySize.get(provider.id) === 1;
+    const updatedAt = iso(card.readAt) ||
+      (cached.length === 1 && (account || singleAccount) ? iso(cached[0].at) : null);
+    // The account names its own card, but only where it is needed to tell two
+    // accounts of one vendor apart: a vendor with a single account keeps its
+    // plain name, and no identity leaves the machine for nothing. A name the
+    // user gave the account in Magpie is theirs to show either way.
+    const several = familySize.get(provider.id) > 1;
+    const named = several && account;
+    const base = named ? provider.id + '@' + account : provider.id + (index > 1 ? '-' + index : '');
+    let id = base, attempt = 2;
+    while (taken.has(id)) id = base + '-' + attempt++;
+    taken.add(id);
+    const shown = alias || (named ? account : null);
     return [{
-      id: index === 1 ? provider.id : provider.id + '-' + index,
-      provider: provider.id, label: provider.label + (index > 1 ? ' ' + index : ''),
+      id,
+      provider: provider.id,
+      label: shown ? provider.label + ' · ' + shown : provider.label + (index > 1 ? ' ' + index : ''),
+      account: named ? account : null,
+      alias,
       plan: typeof card.plan === 'string' && plans.test(card.plan) ? card.plan : provider.plan, updatedAt,
-      windows: card.windows.map(window => {
+      stale: card.stale === true,
+      windows: card.windows.filter(window => window && typeof window === 'object').map(window => {
         const known = typeof window.used === 'number' && Number.isFinite(window.used) && window.used >= 0;
         const usedPercent = known ? Math.min(100, window.used) : null;
         return {
@@ -106,6 +184,67 @@ export function normalizeQuotas(raw, cache = {}) {
     const ai = PROVIDER_ORDER.indexOf(a.provider), bi = PROVIDER_ORDER.indexOf(b.provider);
     return (ai < 0 ? PROVIDER_ORDER.length : ai) - (bi < 0 ? PROVIDER_ORDER.length : bi);
   });
+}
+// Select complete provider groups instead of guessing which anonymous API row
+// belongs to a private cache key. All selected rows still cross the same allowlist.
+// Accounts of one vendor are kept apart: a reading is only ever taken from the
+// account it belongs to, so two Codex accounts never trade places.
+export function resolveQuotas(raw, cache = {}, previous = []) {
+  const group = rows => {
+    const groups = new Map();
+    for (const row of rows) {
+      const provider = PROVIDERS[row?.provider]?.id;
+      if (!provider) continue;
+      const account = accountName(row?.user ?? row?.account) || '';
+      const key = provider + '|' + account;
+      groups.set(key, [...(groups.get(key) || []), row]);
+    }
+    return groups;
+  };
+  const usable = card => !card.error && Array.isArray(card.windows) && card.windows.length > 0 &&
+    card.windows.every(window => window && typeof window === 'object') &&
+    card.windows.some(window => typeof window.used === 'number' && Number.isFinite(window.used) && window.used >= 0);
+  const complete = rows => rows.length > 0 && rows.every(usable);
+  const api = group(Array.isArray(raw?.data) ? raw.data : []);
+  const disk = group(Object.values(cache || {}).map(item => item?.quota && ({
+    ...item.quota, readAt: iso(item.quota.readAt) || iso(item.at),
+  })));
+  const history = group(previous.map(card => ({
+    ...card, provider: card.provider === 'glm' ? 'zhipu' : card.provider,
+    readAt: card.updatedAt,
+    windows: card.windows.map(window => ({ ...window, name: window.label, used: window.usedPercent })),
+  })));
+  const selected = [];
+  for (const provider of PROVIDER_ORDER) {
+    const prefix = provider + '|';
+    const of = source => [...source.entries()].filter(([key]) => key.startsWith(prefix));
+    const live = of(api), familyCached = of(disk).flatMap(([, rows]) => rows),
+      familySaved = of(history).flatMap(([, rows]) => rows);
+    if (!live.length) {
+      // No live reading at all: the cached accounts are the ones on screen.
+      const fallback = complete(familyCached) ? familyCached : complete(familySaved) ? familySaved : [];
+      if (fallback.length) selected.push(...normalizeQuotas({ data: fallback }).map(card => ({ ...card, stale: true })));
+      continue;
+    }
+    // The live answer names the accounts. Each account is recovered on its own:
+    // a reading one account is missing never takes the other account's with it.
+    const picks = [];
+    for (const [key, accountLive] of live) {
+      const named = key !== prefix;
+      const cached = named ? (disk.get(key) || []) : familyCached;
+      const saved = named ? (history.get(key) || []) : familySaved;
+      picks.push(complete(accountLive) ? { rows: accountLive, stale: false }
+        : complete(cached) ? { rows: cached, stale: true }
+        : complete(saved) ? { rows: saved, stale: true }
+        : { rows: accountLive.filter(usable), stale: true });
+    }
+    const rows = picks.flatMap(pick => pick.rows);
+    const stale = picks.flatMap(pick => pick.rows.map(() => pick.stale));
+    const cards = normalizeQuotas({ data: rows });
+    selected.push(...cards.map((card, index) => (stale[index] ? { ...card, stale: true } : card)));
+  }
+  if (!selected.length) throw new Error('No usable quota readings');
+  return selected;
 }
 const SUM_FIELDS = ['calls', 'errors', 'input', 'output', 'cache_read', 'cache_write', 'reasoning',
   'cost', 'unpriced', 'timed', 'ttft_ms', 'decode_ms', 'decode_out', 'decode_n'];
@@ -159,7 +298,9 @@ export function normalizeUsage(raw) {
 }
 export function sanitizeCachedLabels(data, key) {
   if (key === 'quotas') return normalizeQuotas({ data: data.map(card => ({
-    provider: card.provider === 'glm' ? 'zhipu' : card.provider, plan: card.plan, readAt: card.updatedAt,
+    provider: card.provider === 'glm' ? 'zhipu' : card.provider, plan: card.plan, readAt: card.updatedAt, stale: card.stale === true,
+    account: card.account,
+    alias: card.alias,
     windows: card.windows.map(window => ({ ...window, name: window.label, used: window.usedPercent })),
   })) });
   const cleanRows = (rows, type) => (rows || []).map((row, index) => ({ ...row, label: typedLabel(row.label, type, index) }));
@@ -175,7 +316,20 @@ export const shanghaiDay = value => new Date(value + 8 * 3600_000).toISOString()
 export const DEFAULT_DISPLAY = {
   modelLimit: 8, agentLimit: 6, providerLimit: 20, computerLimit: 20, subscriptions: ['codex', 'minimax', 'glm'],
 };
+// A subscription is a vendor family (codex) or one of its accounts
+// (codex@fangzt98). The family's case does not matter; the account's does.
+const splitSubscription = id => {
+  const at = typeof id === 'string' ? id.indexOf('@') : -1;
+  const family = (at < 0 ? String(id) : id.slice(0, at)).toLowerCase();
+  const account = at < 0 ? '' : id.slice(at + 1);
+  return { family, account };
+};
+const subscriptionId = id => {
+  const { family, account } = splitSubscription(id);
+  return family + (account ? '@' + account : '');
+};
 const SUBSCRIPTION_ID = /^[a-z][a-z0-9-]{0,19}$/;
+const SUBSCRIPTION_ACCOUNT = /^[A-Za-z0-9._-]{1,32}$/;
 export function displayOptions(value = {}) {
   const limit = (input, fallback) => {
     if (input === null || input === undefined || input === '') return fallback;
@@ -184,8 +338,12 @@ export function displayOptions(value = {}) {
     return Math.max(1, Math.min(20, Math.round(parsed)));
   };
   const requested = Array.isArray(value.subscriptions) ? value.subscriptions : [];
-  const subscriptions = requested.filter(id => typeof id === 'string' && (id === '*' || SUBSCRIPTION_ID.test(id.toLowerCase())))
-    .map(id => id.toLowerCase());
+  const subscriptions = requested.filter(id => {
+    if (typeof id !== 'string') return false;
+    if (id === '*') return true;
+    const { family, account } = splitSubscription(id);
+    return SUBSCRIPTION_ID.test(family) && (!account || SUBSCRIPTION_ACCOUNT.test(account));
+  }).map(subscriptionId);
   return {
     modelLimit: limit(value.modelLimit, DEFAULT_DISPLAY.modelLimit),
     agentLimit: limit(value.agentLimit, DEFAULT_DISPLAY.agentLimit),
@@ -229,7 +387,7 @@ export function project(snapshot, now = Date.now(), display = {}) {
   if (outdated) { sources.today.state = 'stale'; sources.today.outdated = true; }
   const subscriptions = (snapshot.parts.quotas?.data || []).map(card => ({
     ...card,
-    stale: sources.quotas.state !== 'ok' || !!card.updatedAt && now - Date.parse(card.updatedAt) > 900_000,
+    stale: card.stale === true || sources.quotas.state !== 'ok' || !!card.updatedAt && now - Date.parse(card.updatedAt) > 900_000,
     windows: card.windows.map(window => ({ ...window,
       expired: !!window.resetsAt && Date.parse(window.resetsAt) <= now,
     })),
@@ -238,13 +396,15 @@ export function project(snapshot, now = Date.now(), display = {}) {
   // Without an explicit list the canonical family order is used; a provider that
   // is not listed sorts last instead of first.
   const order = showAll ? PROVIDER_ORDER : options.subscriptions;
-  const rank = provider => {
-    const index = order.indexOf(provider);
+  // A card is ranked by the first entry that names it: its family, or the one
+  // account of that family the list picked.
+  const rank = card => {
+    const index = order.findIndex(entry => entry === card.provider || entry === card.id);
     return index < 0 ? order.length : index;
   };
   const shown = subscriptions
-    .filter(card => showAll || options.subscriptions.includes(card.provider))
-    .sort((a, b) => rank(a.provider) - rank(b.provider));
+    .filter(card => showAll || options.subscriptions.includes(card.provider) || options.subscriptions.includes(card.id))
+    .sort((a, b) => rank(a) - rank(b));
   const week = snapshot.parts.week?.data;
   return {
     schemaVersion: 1, generatedAt: new Date(now).toISOString(), timezone: 'Asia/Shanghai', sources,

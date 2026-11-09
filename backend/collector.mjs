@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
-import { normalizeQuotas, normalizeUsage, project, shanghaiDay, sanitizeCachedLabels } from './normalize.mjs';
+import { resolveQuotas, normalizeUsage, project, shanghaiDay, sanitizeCachedLabels } from './normalize.mjs';
 
 export class Collector {
   constructor({ upstream, magpieDir, snapshotFile, fetcher = fetch, clock = Date.now, display = {} }) {
@@ -32,6 +32,13 @@ export class Collector {
     try { return JSON.parse(await readFile(path.join(this.magpieDir, 'quotas.json'), 'utf8')); }
     catch { return {}; }
   }
+  async quotas() {
+    const [response, cache] = await Promise.allSettled([
+      this.request('/v1/magpie/quotas?kept=1'), this.quotaCache(),
+    ]);
+    return resolveQuotas(response.status === 'fulfilled' ? response.value : null,
+      cache.status === 'fulfilled' ? cache.value : {}, this.snapshot.parts.quotas?.data || []);
+  }
   refresh() {
     if (this.pending) return this.pending;
     this.pending = this.collect().finally(() => { this.pending = null; });
@@ -39,7 +46,7 @@ export class Collector {
   }
   async collect() {
     const jobs = {
-      quotas: async () => normalizeQuotas(await this.request('/v1/magpie/quotas?kept=1'), await this.quotaCache()),
+      quotas: () => this.quotas(),
       today: async () => normalizeUsage(await this.request('/v1/magpie/usage/requests?period=today&limit=1')),
       week: async () => normalizeUsage(await this.request('/v1/magpie/usage/requests?period=7d&limit=1')),
     };
@@ -48,7 +55,8 @@ export class Collector {
         const periodDay = shanghaiDay(this.clock());
         const data = await job();
         this.snapshot.parts[key] = { observedAt: new Date(this.clock()).toISOString(), periodDay, data };
-        delete this.snapshot.failures[key];
+        if (key === 'quotas' && data.every(card => card.stale)) this.snapshot.failures[key] = true;
+        else delete this.snapshot.failures[key];
       } catch { this.snapshot.failures[key] = true; }
     }));
     try {

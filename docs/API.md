@@ -25,6 +25,8 @@ Authorization: Bearer <local-read-only-token>
 
 来源 state 为 `ok`、`stale` 或 `unavailable`。读取失败或超过三分钟未成功观测时为 stale。跨日的今日读数也标记 stale，增加 `outdated: true` 并将 `usage.today` 设为 null。
 
+额度按厂商优先采用正常接口结果；接口缺项、报错或没有有效窗口时，依次使用 Magpie 本地 `quotas.json` 和服务上次成功结果，整组保留同厂商的独立账号。回退卡片的 `stale` 为 true，`updatedAt` 保持原始读取时间；全部卡片均为回退结果时，`sources.quotas.state` 也为 `stale`。缓存不能使已经到期的窗口恢复有效。
+
 `display` 段字段：
 
 | 字段 | 含义 | 默认 |
@@ -37,9 +39,13 @@ Authorization: Bearer <local-read-only-token>
 
 模型与厂商条目来自 Magpie 的实际用量，不做模型名白名单以外的裁剪：同一模型若以不同厂商前缀或不同大小写出现（如 `glm-5.3`、`GLM-5.3`、`zhipu/glm-5.3`），会合并为一行并累加各项计数。厂商标签按上游稳定 id 解析（`minimax-cn` → `MiniMax`、`zhipu` → `GLM`、`session-unknown` → `本地会话`）；无法识别的 id 显示为 `Unknown`，上游自由文本不会作为标签输出。
 
-`subscriptions` 的顺序即手机组件的显示顺序；中号组件最多显示 3 个套餐，大号最多显示 4 个，超出的部分在组件上标注并保留在详情页。
+Agent 条目同样按上游稳定 id 解析，覆盖 Magpie 已知的全部 agent（`claude` → `Claude Code`、`mimocode` → `MiMo Code`、`dsh` → `DeepSeek Harness`、`morph` → `Mister Morph` 等）；上游的 `name` 可能来自客户端 User-Agent，因此不作为标签输出。在 WSL 中运行的 agent 会在 id 后带 `@发行版`（如 `codex@wsl:Ubuntu-22.04`），仍按 agent 本身显示。
 
-套餐字段：`id`、`provider`、`label`、`plan`、`updatedAt`、`stale`、`windows`。多个同厂商账号使用匿名序号，不输出账号身份。额度 windows 包含：
+`subscriptions` 的顺序即手机组件的显示顺序；API 保留全部所选套餐，分页仅在手机端进行。中号与大号每页最多显示 6 个，随当前页数量自动调整布局；通过组件参数 `page=2` 指定第二页，支持 `page=2|used`。默认第一页，无效页码使用第一页，超出范围使用最后一页；多页时显示当前页码及总页数。
+
+套餐字段：`id`、`provider`、`label`、`plan`、`account`、`alias`、`updatedAt`、`stale`、`windows`。同一厂商有多个账号时，每个账号单独成卡：`id` 为 `厂商@账号`（如 `codex@liuzq`），`label` 为 `Codex · liuzq`，`account` 为账号标识；只有一个账号的厂商保持 `Codex` 这样的普通名称，不输出账号身份。账号只取上游 `user` 中 `@` 前的部分，邮箱域名与凭据不会离开本机。Magpie 中给账户起的名字（`magpie accounts alias codex <email> <name>`）由上游放在 `alias`，符合纯文本规则的才显示，出现在 `label` 与 `alias` 字段中，它不改变 `id`。`display.subscriptions` 既可写厂商名（`codex`），也可写某个账号（`codex@liuzq`）；组件参数同样支持这两种写法，厂商名表示该厂商的第一个账号。
+
+额度 windows 包含：
 - `label`：厂商窗口名。
 - `usedPercent`、`remainingPercent`：0–100；未知为 null。
 - `resetsAt`：UTC ISO 时间或 null。

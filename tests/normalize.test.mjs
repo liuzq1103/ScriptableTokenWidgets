@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { metrics, normalizeQuotas, normalizeUsage, project, displayOptions, displayOverrides, sanitizeCachedLabels } from '../backend/normalize.mjs';
-import { makeRawUsage, makeQuotaResponse } from '../fixtures/demo.mjs';
+import { metrics, normalizeQuotas, resolveQuotas, normalizeUsage, project, displayOptions, displayOverrides, sanitizeCachedLabels } from '../backend/normalize.mjs';
+import { makeRawUsage, makeQuotaResponse, makeAccountsQuotaResponse } from '../fixtures/demo.mjs';
 const now = Date.parse('2026-06-12T04:00:00Z');
 const sample = tokens => ({ calls: 1, errors: 0, input: tokens, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 });
 test('cache is added once; reasoning is not added to output again', () => {
@@ -46,6 +46,40 @@ test('quota reading timestamps come from the quota cache when the API omits them
   const result = normalizeQuotas(raw, { privateIdentity: { at: new Date(now).toISOString(), quota: { provider: 'minimax-cn' } } });
   assert.equal(result[1].updatedAt, new Date(now).toISOString());
   assert.ok(!JSON.stringify(result).includes('privateIdentity'));
+});
+
+test('multi-account quota fallback replaces the entire provider group without mixing accounts or sources', () => {
+  const codex = makeQuotaResponse(now).data[0];
+  const cache = {
+    PRIVATE_ACCOUNT_A: { at: new Date(now - 60000).toISOString(), quota: { ...codex, readAt: null, windows: [{ name: '5 hours', used: 10 }] } },
+    PRIVATE_ACCOUNT_B: { at: new Date(now - 120000).toISOString(), quota: { ...codex, readAt: null, windows: [{ name: '5 hours', used: 80 }] } },
+  };
+  const incomplete = { data: [codex, { provider: 'codex', error: 'PRIVATE_ERROR', windows: [] }] };
+  const fallback = resolveQuotas(incomplete, cache);
+  assert.deepEqual(fallback.map(card => card.id), ['codex', 'codex-2']);
+  assert.deepEqual(fallback.map(card => card.windows[0].usedPercent), [10, 80]);
+  assert.deepEqual(fallback.map(card => card.updatedAt), [cache.PRIVATE_ACCOUNT_A.at, cache.PRIVATE_ACCOUNT_B.at]);
+  assert.ok(fallback.every(card => card.stale));
+  assert.ok(!JSON.stringify(fallback).includes('PRIVATE_'));
+  const live = resolveQuotas({ data: [codex, { ...codex, windows: [{ used: 0 }] }] }, cache);
+  assert.deepEqual(live.map(card => card.windows[0].usedPercent), [41, 0]);
+  assert.ok(live.every(card => !card.stale));
+  const noTimestamps = normalizeQuotas({ data: [{ ...codex, readAt: null }, { ...codex, readAt: null }] }, {
+    onlyOneAccount: cache.PRIVATE_ACCOUNT_A,
+  });
+  assert.ok(noTimestamps.every(card => card.updatedAt === null), 'a lone cache timestamp must not be assigned to two API accounts');
+});
+
+test('malformed and unknown quota values fall back to sanitized historical readings', () => {
+  const history = normalizeQuotas(makeQuotaResponse(now));
+  for (const windows of [[], [null], [{ used: null }], [{ used: -1 }]]) {
+    const resolved = resolveQuotas({ data: [{ provider: 'codex', windows }] }, { invalid: null }, history);
+    assert.equal(resolved.length, 3);
+    assert.equal(resolved[0].windows[0].remainingPercent, 59);
+    assert.ok(resolved.every(card => card.stale));
+  }
+  const resolved = resolveQuotas(null, {}, history);
+  assert.deepEqual(sanitizeCachedLabels(resolved, 'quotas'), resolved, 'restart preserves fallback status and readings');
 });
 test('Shanghai midnight never relabels yesterday as today', () => {
   const observedAt = '2026-06-12T15:59:00Z';
@@ -194,6 +228,91 @@ test('agent ranking labels resolve by id; free text and icons never pass through
   assert.ok(!text.includes('FREE TEXT NAME'));
   assert.ok(!text.includes('icon'));
   assert.ok(!text.includes('PRIVATE_PROMPT'));
+});
+test('every agent Magpie knows is shown by its own name', () => {
+  const known = {
+    claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', opencode: 'OpenCode',
+    mimocode: 'MiMo Code', deveco: 'DevEco Code', pi: 'Pi', goose: 'Goose', cursor: 'Cursor CLI',
+    copilot: 'Copilot CLI', vscode: 'VS Code', crush: 'Crush', dsh: 'DeepSeek Harness',
+    commandcode: 'Command Code', fx: 'fx', omp: 'omp', omo: 'OmO', devin: 'Devin',
+    hermes: 'Hermes Agent', morph: 'Mister Morph', kimi: 'Kimi Code', muse: 'Muse Code',
+    empryo: 'Empryo', 'minimax-code': 'MiniMax Code', droid: 'Droid', grok: 'Grok Build',
+    zcode: 'ZCode', hanako: 'OpenHanako', atomcode: 'AtomCode', snow: 'Snow CLI', qwenpaw: 'QwenPaw',
+    'claude-desktop': 'Claude Desktop', 'vscode-insiders': 'VS Code Insiders', vscodium: 'VSCodium',
+    'prime-agent': 'Prime Agent', 'qoder-cn': 'Qoder CN', 'workbuddy-ai': 'WorkBuddy AI',
+    'grok-app': 'Grok App', 'zoo-code': 'Zoo Code', 'copilot-jetbrains': 'Copilot (JetBrains)',
+  };
+  const raw = makeRawUsage('7d', now);
+  raw.by.agent = Object.keys(known).map((id, index) => ({ id, name: 'FREE TEXT', ...sample(100 - index) }));
+  const labels = new Set(normalizeUsage(raw).agents.map(agent => agent.label));
+  for (const [id, label] of Object.entries(known)) assert.ok(labels.has(label), id + ' should be shown as ' + label);
+  const text = JSON.stringify(normalizeUsage(raw).agents);
+  assert.ok(!text.includes('FREE TEXT'));
+});
+test('an agent running in a WSL distro keeps the name of the agent itself', () => {
+  const raw = makeRawUsage('7d', now);
+  raw.by.agent = [
+    { id: 'codex@wsl:Ubuntu-22.04', name: 'Codex · WSL Ubuntu-22.04', ...sample(10) },
+    { id: 'claude', name: 'Claude Code', ...sample(20) },
+  ];
+  assert.deepEqual(normalizeUsage(raw).agents.map(agent => agent.label), ['Claude Code', 'Codex']);
+});
+test('two accounts of one vendor are told apart by their own identity', () => {
+  const raw = makeAccountsQuotaResponse(now);
+  const cards = normalizeQuotas(raw);
+  const codex = cards.filter(card => card.provider === 'codex');
+  assert.deepEqual(codex.map(card => card.id), ['codex@first', 'codex@second']);
+  assert.deepEqual(codex.map(card => card.label), ['Codex · Work', 'Codex · second']);
+  assert.deepEqual(codex.map(card => card.account), ['first', 'second']);
+  // The name the user gave the account in Magpie is kept beside it.
+  assert.deepEqual(codex.map(card => card.alias), ['Work', null]);
+  // The address never leaves the machine; only the part that names the account does.
+  assert.ok(!JSON.stringify(cards).includes('example.invalid'));
+  // A vendor with a single account keeps its plain name.
+  assert.deepEqual(cards.filter(card => card.provider === 'glm').map(card => card.label), ['GLM']);
+  // The order of the upstream rows does not decide which account is which.
+  const flipped = normalizeQuotas({ data: [...raw.data].reverse() });
+  assert.deepEqual(flipped.map(card => card.id).sort(), cards.map(card => card.id).sort());
+  assert.deepEqual(flipped.map(card => card.label).sort(), cards.map(card => card.label).sort());
+});
+test('a broken account is recovered on its own and never borrows the other one', () => {
+  const raw = makeAccountsQuotaResponse(now);
+  const broken = { ...raw.data[1], windows: [], error: 'boom' };
+  const cached = { at: new Date(now - 60000).toISOString(), quota: { ...raw.data[1], readAt: null, windows: [{ name: '5 hours', used: 55 }] } };
+  const resolved = resolveQuotas({ data: [raw.data[0], broken] }, { secondary: cached });
+  assert.deepEqual(resolved.map(card => card.id), ['codex@first', 'codex@second']);
+  assert.deepEqual(resolved.map(card => card.windows[0].usedPercent), [41, 55]);
+  assert.deepEqual(resolved.map(card => card.stale), [false, true]);
+  assert.equal(resolved[1].updatedAt, cached.at);
+  // A single account of the family keeps the plain id and reads on its own.
+  const alone = resolveQuotas({ data: [raw.data[0]] }, {});
+  assert.deepEqual(alone.map(card => card.id), ['codex']);
+  assert.deepEqual(alone.map(card => card.label), ['Codex · Work']);
+});
+test('the name the user gave an account is shown, and only a plain one is', () => {
+  const raw = makeQuotaResponse(now);
+  raw.data[0].alias = '工作账号';
+  const named = normalizeQuotas(raw);
+  assert.equal(named[0].label, 'Codex · 工作账号');
+  assert.equal(named[0].id, 'codex');
+  assert.equal(named[0].alias, '工作账号');
+  // The account's own address is still not part of the card.
+  assert.equal(named[0].account, null);
+  for (const alias of ['C:\\Users\\PRIVATE_PATH', 'a@b', '<script>', '', '  ', 'x'.repeat(40)]) {
+    raw.data[0].alias = alias;
+    const card = normalizeQuotas(raw)[0];
+    assert.equal(card.alias, null, alias);
+    assert.equal(card.label, 'Codex', alias);
+  }
+});
+test('the display configuration can pick one account of a vendor', () => {
+  const snapshot = { failures: {}, parts: { quotas: { observedAt: new Date(now).toISOString(), data: normalizeQuotas(makeAccountsQuotaResponse(now)) } } };
+  assert.deepEqual(displayOptions({ subscriptions: ['codex@second'] }).subscriptions, ['codex@second']);
+  assert.deepEqual(project(snapshot, now, { subscriptions: ['codex@second'] }).subscriptions.map(card => card.id), ['codex@second']);
+  // The vendor name still shows the whole family.
+  assert.deepEqual(project(snapshot, now, { subscriptions: ['codex'] }).subscriptions.map(card => card.id), ['codex@first', 'codex@second']);
+  // An account that is not a name never reaches the client.
+  assert.deepEqual(displayOptions({ subscriptions: ['codex@../../etc'] }).subscriptions, ['codex', 'minimax', 'glm']);
 });
 test('agent rows from an older snapshot keep labels; missing rows stay empty', () => {
   const raw = makeRawUsage('7d', now);

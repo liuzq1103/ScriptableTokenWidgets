@@ -18,7 +18,7 @@ test('read-only API authenticates headers; static routing cannot expose local st
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(response.headers.get('access-control-allow-origin'), null);
-  assert.equal((await response.json()).subscriptions.length, 3);
+  assert.equal((await response.json()).subscriptions.length, 4);
   assert.equal((await fetch(base + '/api/v1/overview', { method: 'POST' })).status, 405);
   for (const route of ['/.local/config.json', '/.git/config', '/constructor', '/toString', '/scriptable/../backend/server.mjs']) {
     assert.equal((await fetch(base + route)).status, 404, route);

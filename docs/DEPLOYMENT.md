@@ -29,7 +29,7 @@ PC 上 Magpie 的网关需要正在运行，默认地址为 `http://127.0.0.1:34
 
 ### 展示配置
 
-`.local/config.json` 的 `display` 段决定详情页与手机组件显示多少内容。手机端不保存任何展示选项，只渲染服务投影的结果。
+`.local/config.json` 的 `display` 段决定详情页与手机组件显示哪些内容及顺序。手机端按组件尺寸和当前页订阅数量自动排版；组件参数只控制页码及剩余/已用视图，不改变后端订阅选择。
 
 | 键 | 含义 | 默认 |
 |---|---|---|
@@ -37,7 +37,7 @@ PC 上 Magpie 的网关需要正在运行，默认地址为 `http://127.0.0.1:34
 | `agentLimit` | 客户端排行条数，1–20 | 6 |
 | `providerLimit` | 厂商排行条数 | 20 |
 | `computerLimit` | 设备排行条数 | 20 |
-| `subscriptions` | 手机组件显示哪些套餐及顺序（`codex` / `minimax` / `glm`；`*` 表示全部） | `["codex","minimax","glm"]` |
+| `subscriptions` | 手机组件显示哪些套餐及顺序（`codex` / `minimax` / `glm`；某个账号写作 `codex@liuzq`；`*` 表示全部） | `["codex","minimax","glm"]` |
 
 用配置脚本调整（会保留令牌、端口与其它设置）：
 
@@ -53,7 +53,17 @@ node scripts/configure.mjs --model-limit 12 --subscriptions codex,minimax,glm
 
 模型与厂商条目本身来自 Magpie 的实际用量，新增模型无需改代码。**新增订阅家族**（Magpie 里出现本项目未映射的额度卡）需要在 `backend/normalize.mjs` 的 `PROVIDERS` 增加一行 id 与固定显示名，再写进 `subscriptions`；标签只允许取自代码里的固定映射，不读取上游自由文本。
 
-组件布局上限：小号只显示一家，中号最多显示 3 个套餐，大号最多显示 4 个套餐（组件高度固定，超出的部分在组件上标注"另有 N 个套餐"并保留在详情页）。这是进度条宽度与组件高度带来的布局约束，不是数据丢失；`subscriptions` 里排在前面的套餐优先显示。
+客户端排行覆盖 Magpie 支持的全部 agent，每个 agent 按自己的固定名称显示：Claude Code、Codex、Gemini CLI、OpenCode、MiMo Code、DevEco Code、Pi、Goose、Cursor CLI、Copilot CLI、VS Code、Crush、DeepSeek Harness、Command Code、fx、omp、OmO、Devin、Hermes Agent、Mister Morph、Kimi Code、Muse Code、Empryo、MiniMax Code、Droid、Grok Build、ZCode、OpenHanako、AtomCode、Snow CLI、QwenPaw 等。上游的客户端 User-Agent 名称不作为标签输出；Magpie 之后新增的 agent 先按 id 显示，名称在 `backend/normalize.mjs` 的 `AGENT_LABELS` 里补一行即可。
+
+组件布局：小号只显示一家；中号 1–4 个套餐按数量均分列宽，5–6 个改成两行三列并省略重置时间；大号 1 个单卡，2 个并排，3–4 个两行两列，5–6 个三行两列。大号卡片显示主额度、进度条、主额度重置时间及第二窗口百分比，底部仅保留今日与近七日 Token 摘要，趋势图在详情页查看。多个同厂商账号分别占一张卡片。
+
+**同一厂商的多个账号**：在 Magpie 里登录第二个账号（两套登录信息并存）后，两张卡分别显示为 `Codex · 账号名` 与 `Codex · 另一个账号名`，账号名取邮箱 `@` 前的部分，彼此不会换位；该厂商只有一个账号时仍显示 `Codex`，不显示账号身份。邮箱域名不会显示，也不会离开本机。要只显示其中一个账号，在 `subscriptions` 里写 `codex@liuzq`；小号组件的 Widget Parameter 也可写 `codex@liuzq`，写 `codex` 表示该厂商的第一个账号。
+
+给账户起个自己的名字（`magpie accounts alias codex <email> <name>`），组件就会显示这个名字而不是邮箱前缀：`Codex · 工作账号`。名字只在本机保存，符合纯文本规则的才会显示；它不影响 `codex@liuzq` 这样的 id。
+
+中号和大号每页最多六个套餐，按 `subscriptions` 的返回顺序分页。超过六个时显示页码，Widget Parameter 填 `page=2` 查看第二页，填 `page=2|used` 同时查看已用额度。默认第一页，不自动轮播；无效页码回到第一页，超出范围显示最后一页。最后一页按实际套餐数量排版，也可添加多个不同页码的组件组成系统堆叠。
+
+布局使用 `Device.screenSize()` 的屏幕点尺寸选择组件尺寸档位；扣除左右各 16pt 内边距后，正文、页眉和页脚使用相同宽度，中号列间距 10pt、大号 16pt，未知屏幕采用保守估算。名称独占一行，倒计时简写为 `49分`、`3时49分`、`2天3时`；到期显示“待更新”，无重置时间显示“时间未知”。同页主窗口相同时统一在页脚标注，不同时在各卡标明窗口；紧凑中号在数值旁标明不同窗口，不增加倒计时行。
 
 默认安装器使用 [Tailscale TCP 转发](https://tailscale.com/docs/reference/tailscale-cli/serve)，将 Tailnet 上的本项目端口转发至本机回环服务。转发在 Tailscale 重启后保留，不需要开启公网 Funnel。已有同端口且指向其他目标的转发会阻止安装，不覆盖它。
 
@@ -71,7 +81,7 @@ node scripts/configure.mjs --model-limit 12 --subscriptions codex,minimax,glm
 
 在 Scriptable 新建安装器脚本，粘贴仓库中的 `SetupUsageWidget.js` 全文并运行。验证成功后，组件写入 Scriptable 的 iCloud 文档目录（iCloud 不可用时使用本机目录）；Keychain 保存连接信息，本机文档目录保存最后成功快照。已有同名且不是本项目的脚本不会被覆盖。
 
-再次运行安装器可以更新或重新配置组件。iOS 可能在首次运行时询问网络、文件或 Keychain 相关权限，需要由你在手机上完成。
+再次运行安装器可以更新或重新配置组件。把最新 `SetupUsageWidget.js` 粘贴到手机安装器后运行，已保存的地址和令牌会自动带入，验证并安装即可更新现有 `UsageWidget`。旧安装器仍可下载新版组件，但输入框不会自动填入。iOS 可能在首次运行时询问网络、文件或 Keychain 相关权限，需要由你在手机上完成。
 
 **添加桌面组件用系统的小组件机制**：长按桌面空白处 → 左上角"＋" → 搜索 Scriptable → 选**中号**小组件 → 长按组件 → "编辑 Widget" → 脚本选 `UsageWidget`。不要用 Scriptable 脚本内的 "Add to Home Screen" 按钮，它在较新的 iOS 上会被 Safari 拦截（见"iPhone 上打不开详情页"）。
 
@@ -101,7 +111,7 @@ node scripts/verify-live.mjs
 
 - 本机 API 不可达：检查任务和 `.local/service.log`、`.local/service-error.log`，再运行重启脚本。
 - 手机不可达：确认两端 Tailscale 已连接、Tailnet ACL 允许访问该端口，再检查转发状态。
-- 缺少额度：在 Magpie 中确认对应订阅或 Coding Plan 登录有效，并等待 Magpie 自动更新额度。
+- 缺少额度：服务会在额度接口缺项、报错或空窗口时读取 Magpie 本地 `quotas.json`，再回退到上次成功结果，标记缓存并保留实际读取时间。如果两处均没有有效额度，在 Magpie 中确认对应订阅或 Coding Plan 登录有效，并等待 Magpie 自动更新额度。接口恢复后会自动切回正常结果。
 - 少算服务器用量：确认 Magpie 的用量同步开启，且服务器端已产生并同步该天的记录。
 - 端口冲突：修改本地配置端口后重新运行安装器；它会依据本项目的归属记录移除旧转发并创建新转发。若原转发已被修改或新端口属于其他目标，安装器报错并保留相关配置。不要使用 `tailscale serve reset` 清空其他服务。
 - 地址或 iPhone 更换：再次配置；若使用直接防火墙模式，还需重新应用对应精确规则。
@@ -133,6 +143,6 @@ node scripts/verify-live.mjs
 
 自动测试还在临时目录中模拟 Windows 计划任务、启动探测和防火墙接口，验证重装会重启、失败不新增入口、不同网络模式拒绝直接混用，以及规则归属检查；它不会改动测试机器的真实任务或防火墙。
 
-自动测试执行真实组件脚本并模拟 Scriptable API，覆盖小中大三种布局分支、首次设置、离线和过期读数。浏览器预览检查响应式页面和深浅色。它们不能替代 iOS 上的真实字体、组件尺寸和刷新调度验证。
+自动测试执行真实组件脚本并模拟 Scriptable API，覆盖小中大布局、0–7 个订阅、多账号独立额度、分页与最后一页、深浅色、安装更新、离线和过期读数，并检查不同屏幕尺寸的宽高预算、正文边缘对齐、文字宽度及上下留白。`node scripts/preview-widgets.mjs` 用同一布局树和演示数据生成 `docs/preview-widgets.png`，需要 Python、Pillow 和 Windows 字体；它是尺寸模拟，不能替代 iOS 字体排版。更新后重点检查同一台 iPhone 的中号四列、两行三列和大号三行两列的文字截断、整体高度及边缘对齐。
 
 卸载脚本只删除本项目任务、由本项目管理且目标未变化的 TCP 转发，以及有本项目归属记录且校验一致的防火墙规则；保留个人配置、缓存和 Magpie。只读令牌拥有读取汇总的权限，无法使用模型网关或修改账号配置。

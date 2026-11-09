@@ -20,7 +20,7 @@ flowchart LR
 ```
 
 - 所选套餐的剩余比例、5 小时／周额度窗口与重置时间，以 Magpie 实际返回为准；详情页与组件均可切换剩余／已用两种视图。
-- 今日 Token、七日趋势、模型／厂商／客户端排行和两端设备用量，包含 Magpie 已识别的原生 Agent 日志。模型与厂商条目来自实际用量，新增模型无需改代码。
+- 今日 Token、七日趋势、模型／厂商／客户端排行和两端设备用量，包含 Magpie 已识别的原生 Agent 日志。模型与厂商条目来自实际用量，新增模型无需改代码。客户端排行覆盖 Magpie 支持的全部 agent，每个 agent 按自己的名称显示（Claude Code、Codex、Gemini CLI、OpenCode、MiMo Code、DevEco Code、Pi、Goose、Cursor CLI、Copilot CLI、VS Code、Crush、DeepSeek Harness、Command Code、fx、omp、OmO、Devin、Hermes Agent、Mister Morph、Kimi Code、Muse Code、Empryo、MiniMax Code、Droid、Grok Build、ZCode、OpenHanako、AtomCode、Snow CLI、QwenPaw 等）。
 - 预估费用与流式输出速度为 Magpie 的估算值，在详情页与排行的费用列中展示。
 - Token 为输入＋输出＋缓存读取＋缓存写入；推理用量单列，已含在输出中。
 - 深浅色自适应；网页也可手动切换。断网保留最后结果，窗口到期不会伪造新额度。
@@ -54,13 +54,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
 
 | 尺寸 | 内容 | Widget Parameter |
 |---|---|---|
-| 小号 | 单家额度、重置倒计时、今日 Token | `codex`（默认）、`minimax`、`glm`；加 `|used` 改显已用 |
-| 中号 | 所选套餐的主要窗口（最多 3 个）、重置倒计时、今日 Token | 留空 |
-| 大号 | 所选套餐的全部窗口（最多 4 个）、今日用量、七日趋势 | 留空 |
+| 小号 | 单家额度、重置倒计时、今日 Token | `codex`（默认）、`minimax`、`glm`；某账号写作 `codex@账号名`；加 `|used` 改显已用 |
+| 中号 | 每页最多 6 个；1–4 个并排，5–6 个两行三列；今日 Token | 留空；`page=2` 查看第二页 |
+| 大号 | 每页最多 6 个；两列卡片，显示主额度、重置时间及第二窗口百分比；今日与近七日 Token | 留空；`page=2` 查看第二页 |
+
+订阅增减后布局自动调整。同一厂商登录了两个账号时，两张卡分别显示为 `Codex · 账号名` 与 `Codex · 另一个账号名`（账号名取邮箱 `@` 前的部分；在 Magpie 里给账户起的名字会优先显示），只有一个账号时仍显示 `Codex`。中号 1–4 个时显示重置倒计时，5–6 个时采用紧凑卡片并省略倒计时。大号不再显示趋势图，趋势仍可在详情页查看。
+
+正文按屏幕尺寸选择组件宽度，与页眉、页脚对齐；名称单独一行，重置倒计时简写为 `3时49分`。主窗口相同时在页脚统一标注 `剩余 · 5h`，不同时各卡分别标注窗口。参考 [布局模拟预览](docs/preview-widgets.png)（演示数据，非 iOS 截图）。本地运行 `node scripts/preview-widgets.mjs` 可重新生成预览，需要 Python、Pillow 和 Windows 系统字体。
+
+超过六个订阅时，每页显示六个并标注页码；在“编辑 Widget”的 Parameter 中填 `page=2`，或用 `page=2|used` 同时切为已用视图。默认第一页，不自动轮播；可以添加多个组件指定不同页，再用系统组件堆叠切换。无效页码回到第一页，超出范围显示最后一页，订阅减少后也会自动适配。
+
+更新组件：将最新的 `SetupUsageWidget.js` 粘贴到手机安装器脚本并运行，已保存的地址和令牌会自动带入。验证并安装后，桌面现有的 `UsageWidget` 会使用新布局，无需重新添加组件。已有旧安装器也能下载新版组件，但需要重新填写地址和令牌。
 
 令牌保存在 iPhone 的 Keychain，不需要将任何密钥写入脚本。点击组件打开详情页；网页会立即移除地址中的令牌片段，仅在本标签页保存访问状态。
 
-小号组件按 Widget Parameter 选择套餐（默认 `codex`）。如果 PC 端 `subscriptions` 里没有这一家，组件显示"暂无该套餐"而不是回退到别家——改参数或在 PC 端加上这一家即可。
+小号组件按 Widget Parameter 选择套餐（默认 `codex`）。如果 PC 端 `subscriptions` 里没有这一家，组件显示"暂无该套餐"而不是回退到别家——改参数或在 PC 端加上这一家即可。同一个厂商有多个账号时，参数可写 `codex@liuzq` 指定其中一个账号，写 `codex` 表示该厂商的第一个账号；PC 端的 `subscriptions` 也接受这种写法。
 
 ## 日常维护
 

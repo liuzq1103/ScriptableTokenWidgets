@@ -6,6 +6,30 @@ import path from 'node:path';
 import { Collector } from '../backend/collector.mjs';
 import { makeRawUsage, makeQuotaResponse } from '../fixtures/demo.mjs';
 
+const quotaNow = Date.parse('2026-06-12T04:00:00Z');
+function diskQuotas(now = quotaNow) {
+  return Object.fromEntries(makeQuotaResponse(now).data.map((quota, i) => {
+    delete quota.readAt;
+    return ['PRIVATE_ACCOUNT_' + i, { at: new Date(now).toISOString(), quota: {
+      ...quota, user: 'PRIVATE_USER', token: 'PRIVATE_CREDENTIAL',
+    } }];
+  }));
+}
+async function quotaFallbackHarness({ api = makeQuotaResponse(quotaNow), cache = {} } = {}) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'usage-quota-fallback-'));
+  await writeFile(path.join(directory, 'quotas.json'), JSON.stringify(cache));
+  const state = { api, offline: false, now: quotaNow };
+  const options = {
+    upstream: 'http://127.0.0.1:3425', magpieDir: directory, snapshotFile: path.join(directory, 'snapshot.json'),
+    clock: () => state.now,
+    fetcher: async url => {
+      if (url.pathname.endsWith('quotas') && state.offline) throw new Error('PRIVATE_ERROR');
+      return { ok: true, json: async () => url.pathname.endsWith('quotas') ? state.api : makeRawUsage('7d', state.now) };
+    },
+  };
+  return { collector: new Collector(options), directory, state, options };
+}
+
 test('uses Magpie merged requests; coalesces refreshes and preserves good components through an outage', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'usage-test-'));
   const calls = []; let offline = false, now = Date.now();
@@ -61,4 +85,69 @@ test('restart revalidates fresh cached data and sanitizes labels from an older s
   assert.ok(!JSON.stringify(restarted.overview()).includes('PRIVATE_'));
   await restarted.refresh();
   assert.equal(restarted.overview().sources.week.state, 'ok');
+});
+
+test('error-only Codex and omitted providers recover all three quotas from Magpie disk cache', async () => {
+  const { collector, directory } = await quotaFallbackHarness({ cache: diskQuotas(quotaNow - 120000), api: { data: [
+    { provider: 'codex', windows: [], error: 'PRIVATE_ERROR' },
+    { provider: 'copilot', windows: [{ used: 1 }] }, null,
+  ] } });
+  await collector.refresh();
+  const result = collector.overview();
+  assert.deepEqual(result.subscriptions.map(card => card.provider), ['codex', 'minimax', 'glm']);
+  assert.deepEqual(result.subscriptions.map(card => card.windows.length), [2, 1, 2]);
+  for (const card of result.subscriptions) {
+    assert.equal(card.stale, true);
+    assert.equal(card.updatedAt, new Date(quotaNow - 120000).toISOString());
+    assert.ok(card.windows.every(window => window.resetsAt && window.remainingPercent !== null));
+  }
+  assert.equal(result.sources.quotas.state, 'stale');
+  assert.equal(result.sources.today.state, 'ok');
+  const saved = await readFile(path.join(directory, 'snapshot.json'), 'utf8');
+  for (const data of [JSON.stringify(result), saved]) assert.ok(!data.includes('PRIVATE_'));
+});
+
+test('a rejected or malformed quota API still reads disk cache without renewing expired windows', async () => {
+  const { collector, state } = await quotaFallbackHarness({ cache: diskQuotas(quotaNow - 86400000) });
+  state.offline = true;
+  await collector.refresh();
+  const first = collector.overview();
+  assert.equal(first.subscriptions.length, 3);
+  assert.ok(first.subscriptions.every(card => card.stale && card.windows[0].expired));
+  const saved = first.subscriptions;
+  state.offline = false; state.api = { error: 'PRIVATE_ERROR' }; state.now += 60000;
+  await collector.refresh();
+  assert.deepEqual(collector.overview().subscriptions, saved);
+});
+
+test('damaged disk cache preserves missing provider history through refresh and restart, then clears on recovery', async () => {
+  const { collector, directory, state, options } = await quotaFallbackHarness();
+  await collector.refresh();
+  const original = collector.overview().subscriptions;
+  await writeFile(path.join(directory, 'quotas.json'), '{broken');
+  state.now += 60000;
+  state.api = makeQuotaResponse(state.now);
+  state.api.data = state.api.data.slice(0, 1);
+  state.api.data[0].windows[0].used = 50;
+  await collector.refresh();
+  const mixed = collector.overview().subscriptions;
+  assert.equal(mixed[0].windows[0].remainingPercent, 50);
+  assert.deepEqual(mixed.map(card => card.stale), [false, true, true]);
+  assert.equal(mixed[1].updatedAt, original[1].updatedAt);
+  assert.deepEqual(mixed[2].windows, original[2].windows);
+  const restarted = new Collector(options);
+  await restarted.load();
+  await restarted.refresh();
+  assert.deepEqual(restarted.overview().subscriptions, mixed);
+  state.api = makeQuotaResponse(state.now);
+  await restarted.refresh();
+  assert.ok(restarted.overview().subscriptions.every(card => !card.stale));
+  assert.equal(restarted.overview().sources.quotas.state, 'ok');
+});
+
+test('quota failure with no usable disk or history stays unavailable instead of creating an empty card', async () => {
+  const { collector } = await quotaFallbackHarness({ api: { data: [{ provider: 'codex', error: 'PRIVATE_ERROR', windows: [] }] }, cache: null });
+  await collector.refresh();
+  assert.deepEqual(collector.overview().subscriptions, []);
+  assert.equal(collector.overview().sources.quotas.state, 'unavailable');
 });
