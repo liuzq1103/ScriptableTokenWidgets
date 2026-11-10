@@ -2,6 +2,8 @@
 // Configure once with SetupUsageWidget.js. No credentials belong in this file.
 // Widget parameter: a provider id for the small family (codex, minimax, glm),
 // optionally "|used" to show consumed instead of remaining percent (glm|used).
+// One account of a vendor is named codex@<account>; the vendor on its own
+// means the first account of that vendor.
 // On medium and large families "used" alone flips every card.
 // Both families adapt to 1–6 subscriptions; "page=2|used" selects another page.
 const SETTINGS_KEY = "usage-bridge-v1";
@@ -85,8 +87,40 @@ function compact(value) {
   if (value >= 1e3) return (value / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
   return String(Math.round(value));
 }
+// The width of a name in the system font, as a multiple of its size: the
+// Chinese characters are full width, the Latin ones differ by their letter.
+function nameWidth(value) {
+  return [...String(value)].reduce((sum, char) => sum + (
+    char.codePointAt(0) >= 0x2e80 ? 1 : /[MW%]/.test(char) ? 0.85 :
+      /[il: .·]/.test(char) ? 0.28 : /\d/.test(char) ? 0.58 : 0.56
+  ), 0);
+}
+// The name of a card is shown in full: it takes the size that fits its cell.
+// A name that does not fit even at the smallest size is shortened, and the
+// full name stays in the dashboard.
+const minimumScale = family === "small" ? 0.7 : 0.9;
+function fitName(value, size, width) {
+  const label = String(value);
+  const em = nameWidth(label);
+  return { size: em > 0 ? Math.max(7, Math.min(size, Math.floor(width / em / minimumScale * 10) / 10)) : size, label };
+}
+function shortenName(label, size, width) {
+  if (nameWidth(label) * size * minimumScale <= width) return label;
+  let keep = label.length;
+  while (keep > 1 && nameWidth(label.slice(0, keep) + "…") * size * minimumScale > width) keep--;
+  return label.slice(0, keep) + "…";
+}
 function expired(window) {
   return window.expired || !!window.resetsAt && Date.parse(window.resetsAt) <= Date.now();
+}
+// The reset of a window is read in one place, so the full text and the short
+// one can never disagree about an unknown or an elapsed time.
+function parseReset(window) {
+  if (expired(window)) return { state: "expired" };
+  if (!window.resetsAt) return { state: "unknown" };
+  const at = Date.parse(window.resetsAt);
+  if (!Number.isFinite(at)) return { state: "unknown" };
+  return { state: "known", minutes: Math.ceil((at - Date.now()) / 60000) };
 }
 // Both directions read the same vendor percentage; only the view changes.
 function value(window) {
@@ -101,17 +135,19 @@ function accent(window) {
   return consumed >= 90 ? colors.critical : consumed >= 75 ? colors.warning : colors.text;
 }
 function reset(window) {
-  if (expired(window)) return "已到期· 待更新";
-  if (!window.resetsAt) return "重置时间未知";
-  const mins = Math.ceil((Date.parse(window.resetsAt) - Date.now()) / 60000);
+  const parsed = parseReset(window);
+  if (parsed.state === "expired") return "已到期· 待更新";
+  if (parsed.state === "unknown") return "重置时间未知";
+  const mins = parsed.minutes;
   if (mins < 60) return mins + " 分钟后重置";
   if (mins < 1440) return Math.floor(mins / 60) + "时 " + mins % 60 + "分后重置";
   return Math.floor(mins / 1440) + "天 " + Math.floor(mins % 1440 / 60) + "时后重置";
 }
 function shortReset(window) {
-  if (expired(window)) return "待更新";
-  if (!window.resetsAt) return "时间未知";
-  const mins = Math.ceil((Date.parse(window.resetsAt) - Date.now()) / 60000);
+  const parsed = parseReset(window);
+  if (parsed.state === "expired") return "待更新";
+  if (parsed.state === "unknown") return "时间未知";
+  const mins = parsed.minutes;
   if (mins < 60) return mins + "分";
   if (mins < 1440) return Math.floor(mins / 60) + "时" + String(mins % 60).padStart(2, "0") + "分";
   return Math.floor(mins / 1440) + "天" + Math.floor(mins % 1440 / 60) + "时";
@@ -141,12 +177,18 @@ function header(status) {
   text(row, "usage.", 15, colors.text, "medium"); row.addSpacer();
   text(row, status, 9, cached ? colors.warning : colors.muted);
 }
-const parameter = String(args.widgetParameter || "").split("|").map(part => part.trim().toLowerCase()).filter(Boolean);
-const showUsed = parameter.includes("used");
-const requested = parameter.find(part => part !== "used") || "codex";
+// The parameter is read once: a subscription to show, a page and a direction.
+// The case of an account is kept: two accounts of one vendor may differ in
+// nothing but their case.
+const parameter = String(args.widgetParameter || "").split("|").map(part => part.trim()).filter(Boolean);
+const showUsed = parameter.some(part => part.toLowerCase() === "used");
+const pageParts = parameter.filter(part => /^page=/i.test(part));
+const selectors = parameter.filter(part => part.toLowerCase() !== "used" && !/^page=/i.test(part));
+const requested = selectors[0] || "codex";
 const emptyWindow = { label: "Quota", remainingPercent: null, usedPercent: null, resetsAt: null };
 function subscriptionGrid(parent, cards, sharedWindow) {
   const large = family === "large";
+  if (!cards.length) return;
   const columns = large ? Math.min(2, cards.length) : cards.length > 4 ? 3 : cards.length;
   const rows = Math.ceil(cards.length / columns);
   const dense = large ? rows === 3 : rows === 2;
@@ -162,6 +204,10 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       ? { name: tight ? 9 : 10, value: tight ? 18 : 20, titleGap: 1, barGap: 1, rowGap: tight ? 4 : 6 }
       : { name: cellWidth < 67 ? 9 : 11, value: cellWidth < 67 ? 24 : 28, reset: cellWidth < 64 ? 9 : 10, titleGap: 4, barGap: 6, resetGap: 6, rowGap: 0 };
   const grid = parent.addStack(); grid.layoutVertically(); grid.size = new Size(layout.width, 0);
+  // Every name of the page takes the size that fits the narrowest of them, so
+  // the cards keep one title size.
+  const names = cards.map(card => fitName(card.label, style.name, cellWidth));
+  const nameSize = names.length ? Math.min(...names.map(name => name.size)) : style.name;
   for (let start = 0; start < cards.length; start += columns) {
     if (start) grid.addSpacer(style.rowGap);
     const row = grid.addStack(); row.topAlignContent();
@@ -171,7 +217,7 @@ function subscriptionGrid(parent, cards, sharedWindow) {
       const card = cards[start + index];
       if (!card) continue; // Keep the final card aligned with the previous rows.
       const primary = card.windows[0] || emptyWindow;
-      text(column, card.label, style.name, colors.muted, "medium");
+      text(column, shortenName(card.label, nameSize, cellWidth), nameSize, colors.muted, "medium");
       column.addSpacer(style.titleGap);
       const valueRow = column.addStack(); valueRow.centerAlignContent();
       text(valueRow, percent(primary), style.value, accent(primary), "medium");
@@ -209,13 +255,17 @@ if (!settings || !data || data.schemaVersion !== 1) {
   if (family === "small") {
     header(status);
     // A parameter may name one account of a vendor (codex@fangzt98) or the
-    // vendor itself, which then means its first account.
-    const card = data.subscriptions.find(c => String(c.id).toLowerCase() === requested)
-      || data.subscriptions.find(c => c.provider === requested);
+    // vendor itself, which then means its first account. The id is matched as
+    // it is written: two accounts of one vendor may differ in their case only.
+    const exact = data.subscriptions.find(c => c.id === requested);
+    const same = data.subscriptions.filter(c => String(c.id).toLowerCase() === requested.toLowerCase());
+    const card = exact || (same.length === 1 ? same[0] : null)
+      || data.subscriptions.find(c => c.provider === requested.toLowerCase());
     widget.addSpacer(12);
     const primary = card && card.windows[0] || emptyWindow;
     const name = widget.addStack();
-    text(name, card ? card.label : "暂无该套餐", 12, colors.muted, "medium");
+    const title = fitName(card ? card.label : "暂无该套餐", 12, layout.width - 60);
+    text(name, title.label, title.size, colors.muted, "medium");
     name.addSpacer(4); text(name, windowLabel(primary), 9, colors.muted);
     widget.addSpacer(3); text(widget, percent(primary), 34, accent(primary), "medium");
     widget.addSpacer(7); bar(widget, primary, 120); widget.addSpacer(7);
@@ -233,7 +283,7 @@ if (!settings || !data || data.schemaVersion !== 1) {
     // Preserve service order and every independent account; page only on the phone.
     const all = data.subscriptions || [];
     const pages = Math.max(1, Math.ceil(all.length / 6));
-    const pageToken = parameter.find(part => part.startsWith("page=")) || "page=1";
+    const pageToken = pageParts[0] || "page=1";
     const rawPage = pageToken.slice(5);
     const pageNumber = /^\d+$/.test(rawPage) ? Number(rawPage) : NaN;
     const page = Number.isSafeInteger(pageNumber) && pageNumber > 0 ? Math.min(pageNumber, pages) : 1;

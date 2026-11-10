@@ -292,6 +292,14 @@ test('a broken account is recovered on its own and never borrows the other one',
   const alone = resolveQuotas({ data: [raw.data[0]] }, {});
   assert.deepEqual(alone.map(card => card.id), ['codex']);
   assert.deepEqual(alone.map(card => card.label), ['Codex · Work']);
+  // The order of the gateway never decides which reading belongs to which
+  // account.
+  const brokenFirst = { ...raw.data[0], windows: [], error: 'boom' };
+  const cachedFirst = { at: new Date(now - 60000).toISOString(), quota: { ...raw.data[0], readAt: null, windows: [{ name: '5 hours', used: 55 }] } };
+  const reversed = resolveQuotas({ data: [raw.data[1], brokenFirst] }, { secondary: cachedFirst });
+  assert.deepEqual(reversed.map(card => card.id), ['codex@first', 'codex@second']);
+  assert.deepEqual(reversed.map(card => card.windows[0].usedPercent), [55, 8]);
+  assert.deepEqual(reversed.map(card => card.stale), [true, false]);
 });
 test('the name the user gave an account is shown, and only a plain one is', () => {
   const raw = makeQuotaResponse(now);
@@ -352,6 +360,54 @@ test('the display configuration can pick one account of a vendor', () => {
   assert.deepEqual(project(snapshot, now, { subscriptions: ['codex'] }).subscriptions.map(card => card.id), ['codex@first', 'codex@second']);
   // An account that is not a name never reaches the client.
   assert.deepEqual(displayOptions({ subscriptions: ['codex@../../etc'] }).subscriptions, ['codex', 'minimax', 'glm']);
+});
+test('two accounts of one vendor that share a name keep apart', () => {
+  const raw = makeAccountsQuotaResponse(now).data.map(card => card.provider === 'codex'
+    ? { ...card, user: 'same@one.invalid' } : card);
+  raw[1] = { ...raw[1], user: 'same@two.invalid' };
+  const cards = normalizeQuotas({ data: raw }).filter(card => card.provider === 'codex');
+  assert.deepEqual(cards.map(card => card.id), ['codex@same', 'codex@same-2']);
+  // The name of the second one keeps its number, so the two can be told apart.
+  assert.deepEqual(cards.map(card => card.label), ['Codex · Work', 'Codex · same-2']);
+});
+test('a vendor row without a number leaves the usage unknown', () => {
+  const observedAt = new Date(now).toISOString();
+  const snapshot = { failures: {}, parts: {
+    quotas: { observedAt, data: normalizeQuotas(makeQuotaResponse(now)) },
+    today: { observedAt, data: { providers: [{ label: 'GLM', requests: 3 }] } },
+  } };
+  // A row that is missing its tokens is not a row of zero tokens.
+  assert.equal(project(snapshot, now).subscriptions.find(card => card.provider === 'glm').usage, null);
+});
+test('the usage of a card is marked when the reading of today is old', () => {
+  const observedAt = new Date(now).toISOString();
+  const snapshot = { failures: {}, parts: {
+    quotas: { observedAt, data: normalizeQuotas(makeQuotaResponse(now)) },
+    today: { observedAt: new Date(now - 600000).toISOString(), data: normalizeUsage(makeRawUsage('today', now)) },
+  } };
+  const card = project(snapshot, now).subscriptions.find(card => card.provider === 'glm');
+  assert.equal(card.usageStale, true);
+  const fresh = project({ ...snapshot, parts: { ...snapshot.parts, today: { observedAt, data: normalizeUsage(makeRawUsage('today', now)) } } }, now);
+  assert.equal(fresh.subscriptions.find(card => card.provider === 'glm').usageStale, false);
+});
+test('a vendor keeps the count of its accounts even when one of them is broken', () => {  const raw = makeAccountsQuotaResponse(now).data.map(card => card.user === 'first@example.invalid'
+    ? { ...card, user: 'first+tag@example.invalid' } : card);
+  // The other account has no window at all: its card is dropped, but the
+  // vendor still has two accounts.
+  const dropped = { ...raw[1], windows: undefined };
+  const resolved = resolveQuotas({ data: [raw[0], dropped] }, {});
+  const cards = resolved.filter(card => card.provider === 'codex');
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].account, null);
+  assert.equal(cards[0].accounts, 2);
+  // The one card that is left shows no total of the vendor: the sum would
+  // count the tokens of the account that is missing.
+  const observedAt = new Date(now).toISOString();
+  const snapshot = { failures: {}, parts: {
+    quotas: { observedAt, data: resolved },
+    today: { observedAt, data: normalizeUsage(makeRawUsage('today', now)) },
+  } };
+  assert.equal(project(snapshot, now).subscriptions.find(card => card.provider === 'codex').usage, null);
 });
 test('agent rows from an older snapshot keep labels; missing rows stay empty', () => {
   const raw = makeRawUsage('7d', now);

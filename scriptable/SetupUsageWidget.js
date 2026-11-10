@@ -40,7 +40,7 @@ if (await alert.presentAlert() !== -1) {
     Keychain.set("usage-bridge-v1", JSON.stringify({ baseURL, token }));
     const done = new Alert();
     done.title = "已连接";
-    done.message = "UsageWidget 已安装。长按桌面添加 Scriptable 中号或大号小组件，选择 UsageWidget。每页最多六个订阅，布局随数量自动调整。\n\n中号和大号参数留空即可；page=2 查看第二页，used 改显已用，可组合 page=2|used。小号填 codex、minimax 或 glm，可加 |used。再次运行本安装器可更新组件。";
+    done.message = "UsageWidget 已安装。长按桌面添加 Scriptable 中号或大号小组件，选择 UsageWidget。每页最多六个订阅，布局随数量自动调整。\n\n中号和大号参数留空即可；page=2 查看第二页，used 改显已用，可组合 page=2|used。小号填 codex、minimax 或 glm，可加 |used；同一个厂商登录了多个账号时，填 codex@账号名 指定其中一个（如 codex@liuzq），只填 codex 表示该厂商的第一个账号。再次运行本安装器可更新组件。";
     done.addAction("预览组件"); done.addCancelAction("完成");
     if (await done.presentAlert() !== -1) Safari.open("scriptable:///run?scriptName=UsageWidget");
   } catch (error) {

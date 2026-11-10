@@ -116,18 +116,26 @@ export function metrics(raw = {}) {
 // A subscription account is told apart by the identity Magpie reports for it.
 // Only the part before the "@" is kept: it names the account on screen without
 // carrying the address itself.
+const ACCOUNT_NAME = /^[A-Za-z0-9._-]{1,32}$/;
 const accountName = value => {
   if (typeof value !== 'string') return null;
   const local = value.split('@')[0] || '';
-  return /^[A-Za-z0-9._-]{1,32}$/.test(local) ? local : null;
+  return ACCOUNT_NAME.test(local) ? local : null;
 };
 // Magpie lets the user name an account of their own ("magpie accounts alias
 // codex <email> <name>"). The name is the user's own text for it, so it may be
 // shown, but only as a short plain label: no path, no address, no markup.
+const ALIAS_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._*'-]{0,31}$/u;
 const aliasName = value => {
   if (typeof value !== 'string') return null;
   const name = value.trim();
-  return /^[\p{L}\p{N}][\p{L}\p{N} ._*'-]{0,31}$/u.test(name) ? name : null;
+  return ALIAS_NAME.test(name) ? name : null;
+};
+// The key of an account of a vendor: the vendor and the name of the account.
+// The same key is used by the card id and by the query of its own usage.
+export const accountKey = (family, value) => {
+  const name = accountName(value);
+  return family && name ? family + '@' + name : null;
 };
 export function normalizeQuotas(raw, cache = {}) {
   if (!raw || !Array.isArray(raw.data)) throw new Error('Invalid quota response');
@@ -137,16 +145,35 @@ export function normalizeQuotas(raw, cache = {}) {
   const familySize = new Map();
   for (const card of raw.data) {
     const family = PROVIDERS[card?.provider]?.id;
-    if (family) familySize.set(family, (familySize.get(family) || 0) + 1);
+    if (!family) continue;
+    // The gateway may know more accounts of a vendor than the rows that are
+    // read now: a broken row is still an account, and a vendor with several
+    // accounts must not lend its total to one of them.
+    const known = Number(card.accounts);
+    familySize.set(family, Math.max((familySize.get(family) || 0) + 1, Number.isFinite(known) ? known : 0));
   }
   const taken = new Set();
+  // The cached readings are indexed by their vendor once, not once per card.
+  const cachedByProvider = new Map();
+  for (const item of Object.values(cache || {})) {
+    const provider = item?.quota?.provider;
+    if (!provider) continue;
+    const list = cachedByProvider.get(provider) || [];
+    list.push(item);
+    cachedByProvider.set(provider, list);
+  }
   // The cards of one vendor are ordered by the name of their own account, so
   // an account keeps its place whatever order the gateway lists the accounts
-  // in, and "the first account of a vendor" always means the same one.
+  // in, and "the first account of a vendor" always means the same one. Two
+  // accounts of one vendor may share the name; the address breaks the tie, so
+  // even then neither of them changes places.
   const ordered = [...raw.data].sort((a, b) => {
     const name = card => (accountName(card?.user ?? card?.account) || '').toLowerCase();
+    const address = card => (typeof (card?.user ?? card?.account) === 'string' ? card.user ?? card.account : '').toLowerCase();
     const left = name(a), right = name(b);
-    return left < right ? -1 : left > right ? 1 : 0;
+    if (left !== right) return left < right ? -1 : 1;
+    const first = address(a), second = address(b);
+    return first < second ? -1 : first > second ? 1 : 0;
   });
   return ordered.flatMap(card => {
     const provider = PROVIDERS[card?.provider];
@@ -156,11 +183,16 @@ export function normalizeQuotas(raw, cache = {}) {
     const alias = aliasName(card?.alias);
     // A cached reading belongs to the account it was taken for, so two accounts
     // of one vendor never borrow each other's timestamp.
-    const cached = Object.values(cache || {}).filter(item => item?.quota?.provider === card.provider &&
-      (!account || accountName(item.quota.user) === account));
+    const cached = (cachedByProvider.get(card.provider) || []).filter(item =>
+      !account || accountName(item.quota.user) === account);
     const singleAccount = familySize.get(provider.id) === 1;
-    const updatedAt = iso(card.readAt) ||
-      (cached.length === 1 && (account || singleAccount) ? iso(cached[0].at) : null);
+    // A card without an identity only inherits a reading of a vendor that has
+    // a single account: the reading of another account is not its own.
+    const cachedAccounts = new Set(cached.map(item => accountName(item.quota.user) || ''));
+    const matches = account || singleAccount && cachedAccounts.size === 1 ? cached : [];
+    const latest = matches.reduce((newest, item) =>
+      !newest || Date.parse(item.at || 0) > Date.parse(newest.at || 0) ? item : newest, null);
+    const updatedAt = iso(card.readAt) || (latest ? iso(latest.at) : null);
     // The account names its own card, but only where it is needed to tell two
     // accounts of one vendor apart: a vendor with a single account keeps its
     // plain name, and no identity leaves the machine for nothing. A name the
@@ -171,6 +203,9 @@ export function normalizeQuotas(raw, cache = {}) {
     let id = base, attempt = 2;
     while (taken.has(id)) id = base + '-' + attempt++;
     taken.add(id);
+    // Two accounts of one vendor may share the name: the one that had to be
+    // numbered keeps its number in the label, so the two can be told apart.
+    const suffix = id === base ? '' : id.slice(base.length);
     const shown = alias || (named ? account : null);
     // The usage of this account alone, when the gateway could report it.
     const own = card?.accountUsage?.today;
@@ -179,10 +214,13 @@ export function normalizeQuotas(raw, cache = {}) {
     return [{
       id,
       provider: provider.id,
-      label: shown ? provider.label + ' · ' + shown : provider.label + (index > 1 ? ' ' + index : ''),
+      label: shown ? provider.label + ' · ' + shown + suffix : provider.label + (index > 1 ? ' ' + index : ''),
       account: named ? account : null,
       alias,
       accountUsage,
+      // How many accounts of this vendor are known: a card of a vendor with
+      // several accounts never shows the total of the vendor.
+      accounts: familySize.get(provider.id) || 1,
       plan: typeof card.plan === 'string' && plans.test(card.plan) ? card.plan : provider.plan, updatedAt,
       stale: card.stale === true,
       windows: card.windows.filter(window => window && typeof window === 'object').map(window => {
@@ -233,15 +271,26 @@ export function resolveQuotas(raw, cache = {}, previous = []) {
     windows: card.windows.map(window => ({ ...window, name: window.label, used: window.usedPercent })),
   })));
   const selected = [];
+  // How many accounts of a vendor the gateway knows, counted over every row it
+  // reports: a broken row is still an account.
+  const known = new Map();
+  for (const [key] of api) {
+    const family = key.split('|')[0];
+    known.set(family, (known.get(family) || 0) + 1);
+  }
   for (const provider of PROVIDER_ORDER) {
     const prefix = provider + '|';
     const of = source => [...source.entries()].filter(([key]) => key.startsWith(prefix));
     const live = of(api), familyCached = of(disk).flatMap(([, rows]) => rows),
       familySaved = of(history).flatMap(([, rows]) => rows);
+    const accounts = known.get(provider) || 0;
     if (!live.length) {
-      // No live reading at all: the cached accounts are the ones on screen.
-      const fallback = complete(familyCached) ? familyCached : complete(familySaved) ? familySaved : [];
-      if (fallback.length) selected.push(...normalizeQuotas({ data: fallback }).map(card => ({ ...card, stale: true })));
+      // No live reading at all: the cached accounts are the ones on screen. The
+      // source that knows more accounts wins, so a cache that lost an account
+      // never hides the one the history still knows.
+      const fallback = familyCached.length >= familySaved.length ? familyCached : familySaved;
+      const rows = complete(fallback) ? fallback : fallback.filter(usable);
+      if (rows.length) selected.push(...normalizeQuotas({ data: rows }).map(card => ({ ...card, stale: true })));
       continue;
     }
     // The live answer names the accounts. Each account is recovered on its own:
@@ -256,10 +305,13 @@ export function resolveQuotas(raw, cache = {}, previous = []) {
         : complete(saved) ? { rows: saved, stale: true }
         : { rows: accountLive.filter(usable), stale: true });
     }
-    const rows = picks.flatMap(pick => pick.rows);
-    const stale = picks.flatMap(pick => pick.rows.map(() => pick.stale));
-    const cards = normalizeQuotas({ data: rows });
-    selected.push(...cards.map((card, index) => (stale[index] ? { ...card, stale: true } : card)));
+    // The fallback of each account travels with its own rows: the cards are
+    // ordered by the name of their account, so a flag cannot be handed to
+    // another account by its place in the list.
+    const rows = picks.flatMap(pick => pick.rows.map(row => ({
+      ...row, ...(pick.stale ? { stale: true } : {}), accounts,
+    })));
+    selected.push(...normalizeQuotas({ data: rows }));
   }
   if (!selected.length) throw new Error('No usable quota readings');
   return selected;
@@ -320,6 +372,7 @@ export function sanitizeCachedLabels(data, key) {
     account: card.account,
     alias: card.alias,
     accountUsage: card.accountUsage,
+    accounts: card.accounts,
     windows: card.windows.map(window => ({ ...window, name: window.label, used: window.usedPercent })),
   })) });
   const cleanRows = (rows, type) => (rows || []).map((row, index) => ({ ...row, label: typedLabel(row.label, type, index) }));
@@ -411,22 +464,33 @@ export function project(snapshot, now = Date.now(), display = {}) {
   const familySizes = new Map();
   for (const card of cards) familySizes.set(card.provider, (familySizes.get(card.provider) || 0) + 1);
   const todayProviders = outdated ? [] : (todayPart?.data?.providers || []);
+  // A row of the usage of a vendor is only a number when it is a number: a
+  // row that is missing one makes the whole total unknown, not smaller.
+  const usageRow = row => typeof row?.totalTokens === 'number' && Number.isFinite(row.totalTokens) &&
+    typeof row?.requests === 'number' && Number.isFinite(row.requests) ? row : null;
   const usageOf = card => {
     if (card.account) return card.accountUsage || null;
     // A vendor with several accounts cannot lend its total to one of them:
     // the sum would count the other account's tokens as well.
-    if ((familySizes.get(card.provider) || 0) > 1) return null;
+    if ((card.accounts || familySizes.get(card.provider) || 0) > 1) return null;
     const label = FAMILY_LABELS[card.provider];
-    const rows = label ? todayProviders.filter(row => row.label === label) : [];
+    const rows = label ? todayProviders.filter(row => String(row.label).trim().toLowerCase() === label.toLowerCase()) : [];
     if (!rows.length) return null;
+    const counted = rows.map(usageRow);
+    // A row without a number makes the total unknown: it is never a smaller
+    // number that looks right.
+    if (counted.some(row => !row)) return null;
     return { today: {
-      totalTokens: rows.reduce((sum, row) => sum + number(row.totalTokens), 0),
-      requests: rows.reduce((sum, row) => sum + number(row.requests), 0),
+      totalTokens: counted.reduce((sum, row) => sum + row.totalTokens, 0),
+      requests: counted.reduce((sum, row) => sum + row.requests, 0),
     } };
   };
   const subscriptions = cards.map(card => ({
     ...card,
     usage: usageOf(card),
+    // The usage of a subscription comes from the reading of today: when that
+    // reading is old, the numbers on the card are old as well.
+    usageStale: sources.today.state !== 'ok',
     stale: card.stale === true || sources.quotas.state !== 'ok' || !!card.updatedAt && now - Date.parse(card.updatedAt) > 900_000,
     windows: card.windows.map(window => ({ ...window,
       expired: !!window.resetsAt && Date.parse(window.resetsAt) <= now,

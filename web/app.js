@@ -110,7 +110,9 @@ function renderQuotas(cards) {
     if (!card.windows.length) article.append(node('p', 'fine-print', '此套餐未提供额度窗口'));
     if (card.usage && card.usage.today) {
       const today = card.usage.today;
-      article.append(node('p', 'fine-print', '今日 ' + compact(today.totalTokens) + ' Token · ' + today.requests + ' 次请求'));
+      const line = '今日 ' + compact(today.totalTokens) + ' Token';
+      const detail = Number.isFinite(today.requests) ? ' · ' + today.requests + ' 次请求' : '';
+      article.append(node('p', 'fine-print', line + detail + (card.usageStale ? ' · 缓存读数' : '')));
     } else {
       // The usage of this subscription is unknown; the total of all is never
       // shown in its place.

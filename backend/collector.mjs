@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
-import { resolveQuotas, normalizeUsage, project, shanghaiDay, sanitizeCachedLabels, providerFamily, number } from './normalize.mjs';
+import { resolveQuotas, normalizeUsage, project, shanghaiDay, sanitizeCachedLabels, providerFamily, accountKey, number } from './normalize.mjs';
 
 export class Collector {
   constructor({ upstream, magpieDir, snapshotFile, fetcher = fetch, clock = Date.now, display = {} }) {
@@ -11,6 +11,8 @@ export class Collector {
     // The address of every account, kept in memory only: it is never written
     // to the snapshot and never leaves this machine.
     this.addresses = new Map();
+    // The last reading of every account, kept in memory only as well.
+    this.usage = new Map();
   }
   async load() {
     try {
@@ -51,9 +53,12 @@ export class Collector {
     const fresh = new Map();
     for (const card of raw?.data || []) {
       const family = providerFamily(card?.provider);
-      const address = typeof card?.user === 'string' ? card.user.trim() : '';
+      const address = typeof (card?.user ?? card?.account) === 'string' ? (card.user ?? card.account).trim() : '';
       if (!family || !address.includes('@')) continue;
-      const key = family + '@' + address.split('@')[0];
+      // The key of the account is the one of its card, so a query can never
+      // reach the reading of another account.
+      const key = accountKey(family, address);
+      if (!key) continue;
       const known = fresh.get(key);
       // Two accounts of one vendor that share the same name cannot be told
       // apart: their usage stays unknown instead of being taken from the wrong
@@ -74,10 +79,16 @@ export class Collector {
         // usage query that only fills in one number.
         const data = await this.request('/v1/magpie/usage/requests?period=today&limit=1&account=' + encodeURIComponent(address), 5000);
         if (!['input', 'output', 'cache_read', 'cache_write', 'calls'].every(key =>
-          typeof data[key] === 'number' && Number.isFinite(data[key]))) return;
+          typeof data[key] === 'number' && Number.isFinite(data[key]))) throw new Error('Not a usage answer');
         const total = number(data.input) + number(data.output) + number(data.cache_read) + number(data.cache_write);
-        card.accountUsage = { today: { totalTokens: total, requests: number(data.calls) } };
-      } catch { /* The card keeps what the family reports. */ }
+        const usage = { today: { totalTokens: total, requests: number(data.calls) } };
+        card.accountUsage = usage;
+        this.usage.set(card.id, usage);
+      } catch {
+        // The last reading of this account is kept: a number that was read a
+        // minute ago is better than no number at all.
+        card.accountUsage = card.accountUsage || this.usage.get(card.id) || null;
+      }
     }));
   }
   refresh() {

@@ -135,6 +135,21 @@ test('the widget parameter selects a provider and the percent direction', async 
   assert.ok(medium.texts.some(t => t.includes('已用')));
 });
 
+test('a long account name is shortened only when it cannot fit its cell', async () => {
+  const subscriptions = exampleAccounts(4);
+  subscriptions[0].label = 'Codex · myverylongaccountname1234';
+  subscriptions[1].label = 'Codex · liuzq1103';
+  const result = await render('medium', { subscriptions, screen: { width: 320, height: 568 } });
+  // The name that fits is shown in full, the one that cannot is shortened.
+  assert.ok(result.texts.includes('Codex · liuzq1103'), result.texts.join(' | '));
+  assert.ok(result.texts.some(text => text.startsWith('Codex · ') && text.endsWith('…')), result.texts.join(' | '));
+  for (const item of positioned(result.widget, result.dimensions).filter(item => item.node.kind === 'text')) {
+    assert.ok(measure(item.node).width * item.node.minimumScaleFactor <= item.width + 0.01,
+      'the name must fit: ' + item.node.value);
+  }
+  assert.ok(!result.texts.some(text => /NaN|undefined/.test(text)));
+});
+
 test('the widget parameter picks one account of a vendor', async () => {
   // The vendor name still shows its first account.
   const first = await render('small', { parameter: 'codex' });
@@ -145,6 +160,18 @@ test('the widget parameter picks one account of a vendor', async () => {
   assert.ok(second.texts.some(t => t.includes('92%')));
   assert.ok(!second.texts.some(t => t.includes('59%')));
   assert.ok(second.texts.some(t => t.includes('Codex · second')));
+  // A page number is not an account: the account beside it is still chosen.
+  const withPage = await render('small', { parameter: 'page=2|codex@second' });
+  assert.ok(withPage.texts.some(t => t.includes('Codex · second')), withPage.texts.join(' | '));
+  // Two accounts that differ in their case alone are two accounts.
+  const cased = ['Alice', 'alice'].map(name => ({
+    id: 'codex@' + name, provider: 'codex', label: 'Codex · ' + name, plan: 'Plus', stale: false,
+    windows: [{ label: '5 hours', usedPercent: 10, remainingPercent: 90, resetsAt: new Date(fixed + 3600000).toISOString() }],
+  }));
+  const lower = await render('small', { parameter: 'codex@alice', subscriptions: cased });
+  assert.ok(lower.texts.includes('Codex · alice'), lower.texts.join(' | '));
+  const upper = await render('small', { parameter: 'codex@Alice', subscriptions: cased });
+  assert.ok(upper.texts.includes('Codex · Alice'), upper.texts.join(' | '));
 });
 
 test('the small widget shows the tokens of the subscription it shows', async () => {
@@ -242,6 +269,12 @@ test('short countdowns, unknown resets and elapsed windows have explicit states'
   for (const expected of ['49分', '3时49分', '2天3时', '时间未知']) assert.ok(result.texts.includes(expected));
   assert.ok((await render('medium', { subscriptions, expired: true })).texts.includes('待更新'));
   assert.ok((await render('small')).texts.some(text => text.includes('后重置')), 'small keeps the original wording');
+  // A time that cannot be read is unknown, never a number full of NaN.
+  const broken = exampleAccounts(2);
+  broken[0].windows[0].resetsAt = 'not a date';
+  const unread = await render('medium', { subscriptions: broken });
+  assert.ok(!unread.texts.some(text => /NaN/.test(text)), unread.texts.join(' | '));
+  assert.ok(unread.texts.includes('时间未知'));
 });
 
 test('orientation and an unavailable screen API do not break sizing', async () => {

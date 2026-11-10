@@ -220,6 +220,31 @@ test('a reading that is not a usage answer leaves the account unknown', async ()
   // A broken answer is not a reading of zero tokens.
   assert.deepEqual(codex.map(card => card.usage), [null, null]);
 });
+test('a failed account query keeps the last reading of that account', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'usage-account-fail-'));
+  let now = Date.now();
+  let accountUp = true;
+  const collector = new Collector({
+    upstream: 'http://127.0.0.1:3425', magpieDir: directory, snapshotFile: path.join(directory, 'snapshot.json'),
+    clock: () => now,
+    fetcher: async url => {
+      if (url.pathname.endsWith('quotas')) return { ok: true, json: async () => makeAccountsQuotaResponse(now) };
+      if (url.search.includes('account=')) {
+        if (!accountUp) throw new Error('offline');
+        return { ok: true, json: async () => ({ calls: 5, errors: 0, input: 100, output: 10, cache_read: 0, cache_write: 0 }) };
+      }
+      return { ok: true, json: async () => makeRawUsage('today', now) };
+    },
+  });
+  await collector.refresh();
+  assert.deepEqual(collector.overview().subscriptions.filter(card => card.provider === 'codex')
+    .map(card => card.usage.today.totalTokens), [110, 110]);
+  accountUp = false; now += 60000;
+  await collector.refresh();
+  // The reading of a minute ago is better than no reading at all.
+  assert.deepEqual(collector.overview().subscriptions.filter(card => card.provider === 'codex')
+    .map(card => card.usage.today.totalTokens), [110, 110]);
+});
 test('the usage of an account survives a quota outage', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'usage-outage-'));
   let now = Date.now();

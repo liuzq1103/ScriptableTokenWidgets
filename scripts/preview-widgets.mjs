@@ -6,7 +6,9 @@ import { render, fixed, positioned } from '../fixtures/scriptable.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function subscriptions(count, mixed = false) {
-  return ['Codex · Work', 'Codex · second', 'MiniMax', 'GLM', 'MiniMax 2', 'GLM 2'].slice(0, count).map((label, index) => {
+  // The names are fictional; the longer one shows how a card takes the size
+  // that fits its name.
+  return ['Codex · Work', 'Codex · anotheraccount', 'MiniMax', 'GLM', 'MiniMax 2', 'GLM 2'].slice(0, count).map((label, index) => {
     const remaining = [85, 100, 98, 97, 72, 64][index];
     const minutes = [229, 229, 182, 266, 58, 320][index];
     return { id: 'demo-' + index, provider: 'codex', label, stale: false, windows: [

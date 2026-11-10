@@ -43,9 +43,13 @@ Agent 条目同样按上游稳定 id 解析，覆盖 Magpie 已知的全部 agen
 
 `subscriptions` 的顺序即手机组件的显示顺序；API 保留全部所选套餐，分页仅在手机端进行。中号与大号每页最多显示 6 个，随当前页数量自动调整布局；通过组件参数 `page=2` 指定第二页，支持 `page=2|used`。默认第一页，无效页码使用第一页，超出范围使用最后一页；多页时显示当前页码及总页数。
 
-套餐字段：`id`、`provider`、`label`、`plan`、`account`、`alias`、`updatedAt`、`stale`、`windows`。同一厂商有多个账号时，每个账号单独成卡：`id` 为 `厂商@账号`（如 `codex@liuzq`），`label` 为 `Codex · liuzq`，`account` 为账号标识；只有一个账号的厂商保持 `Codex` 这样的普通名称，不输出账号身份。账号只取上游 `user` 中 `@` 前的部分，邮箱域名与凭据不会离开本机。Magpie 中给账户起的名字（`magpie accounts alias codex <email> <name>`）由上游放在 `alias`，符合纯文本规则的才显示，出现在 `label` 与 `alias` 字段中，它不改变 `id`。`display.subscriptions` 既可写厂商名（`codex`），也可写某个账号（`codex@liuzq`）；组件参数同样支持这两种写法，厂商名表示该厂商的第一个账号。
+套餐字段：`id`、`provider`、`label`、`plan`、`account`、`alias`、`accounts`、`updatedAt`、`stale`、`usageStale`、`windows`。同一厂商有多个账号时，每个账号单独成卡：`id` 为 `厂商@账号`（如 `codex@liuzq`），`label` 为 `Codex · liuzq`，`account` 为账号标识；只有一个账号的厂商保持 `Codex` 这样的普通名称，不输出账号身份。账号只取上游 `user` 中 `@` 前的部分，邮箱域名与凭据不会离开本机。Magpie 中给账户起的名字（`magpie accounts alias codex <email> <name>`）由上游放在 `alias`，符合纯文本规则的才显示，出现在 `label` 与 `alias` 字段中，它不改变 `id`。`display.subscriptions` 既可写厂商名（`codex`），也可写某个账号（`codex@liuzq`）；组件参数同样支持这两种写法，厂商名表示该厂商的第一个账号。
 
-同一厂商的多个账号按账号名排序，与网关返回的先后无关：账号不会互相换位，厂商名也永远指同一个账号。
+同一厂商的多个账号按账号名排序，与网关返回的先后无关：账号不会互相换位，厂商名也永远指同一个账号。两个账号只差大小写时按原样区分；两个账号的名字完全相同时，后一个在 `id` 与 `label` 上都带序号（如 `codex@liuzq-2`、`Codex · liuzq-2`），两张卡仍能分辨。
+
+`accounts` 是这个厂商已知的账号数。它按网关报出的所有行统计，包括读数坏掉而没有成卡的那一行：一个有多个账号的厂商，任何一张卡都不会借用厂商的合计。
+
+关于标签来源：厂商名、窗口名、模型名与 agent 名都来自代码内的固定映射；`alias` 是例外，因为它是用户自己为**自己的**账号起的名字，不是第三方文本。它只按纯文本规则过滤（字母、数字、空格与 `._*'-`，至多 32 字），不含地址、路径或标记，并随快照保存在本机；不符合规则的别名不显示，`label` 退回厂商名。
 
 额度 windows 包含：
 - `label`：厂商窗口名。
@@ -54,7 +58,9 @@ Agent 条目同样按上游稳定 id 解析，覆盖 Magpie 已知的全部 agen
 - `expired`：窗口是否已到期；客户端在离线时也必须重新计算。
 - `amount`、`limit`：厂商明确提供时保留；不推断额度单位。
 
-每个套餐还带 `usage`：该套餐自己的今日用量（`today.totalTokens`、`today.requests`）。同一厂商有多个账号时，这是那一个账号自己的用量（Magpie 按账号过滤用量后只回总量，账号地址不离开本机、不写入快照）；只有一个账号的厂商，取该厂商自己的用量行。取不到时为 null，客户端不得用全量顶替；同一厂商有多个账号时，任何一张卡都不会借用厂商的总量，因为那会把另一个账号的 Token 算进来。跨日之后的今日读数不作为今天的用量。
+每个套餐还带 `usage`：该套餐自己的今日用量（`today.totalTokens`、`today.requests`）。同一厂商有多个账号时，这是那一个账号自己的用量（Magpie 按账号过滤用量后只回总量，账号地址不离开本机、不写入快照）；只有一个账号的厂商，取该厂商自己的用量行。取不到时为 null，客户端不得用全量顶替；同一厂商有多个账号时，任何一张卡都不会借用厂商的总量，因为那会把另一个账号的 Token 算进来。厂商用量行缺数字时整组作废（未知），不会变成一个偏小的数字。跨日之后的今日读数不作为今天的用量。
+
+`usageStale` 说明这张卡的用量取自多旧的读数：今日读数不是最新时为 true，界面应把它当作缓存显示。额度窗口本身的新旧由 `stale` 与 `updatedAt` 说明。
 
 指标字段：`requests`、`errors`、`inputTokens`、`outputTokens`、`cacheReadTokens`、`cacheWriteTokens`、`reasoningTokens`、`totalTokens`、`cacheHitPercent`、`cost`、`unpriced`、`outputTokensPerSecond`、`ttftMs`。缓存命中率分母为输入＋缓存读取＋缓存写入，与 `totalTokens` 的口径一致；分母为 0 时为 null。`cost` 为 Magpie 按实效价格的估算值，`unpriced` 为未计价请求数（估算可能偏低），货币单位以 Magpie 价格表为准；`outputTokensPerSecond` 为流式解码吞吐，`ttftMs` 为平均首字延迟，两者只统计有测量的请求，无测量时为 null。
 
