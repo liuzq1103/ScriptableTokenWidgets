@@ -178,3 +178,87 @@ test('every account of a vendor is asked for its own usage, and the address is n
   assert.ok(!saved.includes('example.invalid'));
   assert.ok(!JSON.stringify(collector.overview()).includes('example.invalid'));
 });
+test('two accounts of one vendor that share a name never take each other\'s usage', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'usage-same-name-'));
+  const now = Date.now(), calls = [];
+  const quotas = makeAccountsQuotaResponse(now).data.map(card => card.provider === 'codex'
+    ? { ...card, user: 'same@one.invalid' } : card);
+  quotas[1] = { ...quotas[1], user: 'same@two.invalid' };
+  const collector = new Collector({
+    upstream: 'http://127.0.0.1:3425', magpieDir: directory, snapshotFile: path.join(directory, 'snapshot.json'),
+    clock: () => now,
+    fetcher: async url => {
+      calls.push(url.pathname + url.search);
+      if (url.pathname.endsWith('quotas')) return { ok: true, json: async () => ({ data: quotas }) };
+      if (url.search.includes('account=')) {
+        return { ok: true, json: async () => ({ calls: 5, errors: 0, input: 100, output: 10, cache_read: 0, cache_write: 0 }) };
+      }
+      return { ok: true, json: async () => makeRawUsage('today', now) };
+    },
+  });
+  await collector.refresh();
+  // Nothing is asked for them: the two accounts cannot be told apart.
+  assert.equal(calls.filter(call => call.includes('account=')).length, 0);
+  const codex = collector.overview().subscriptions.filter(card => card.provider === 'codex');
+  assert.equal(codex.length, 2);
+  assert.deepEqual(codex.map(card => card.usage), [null, null]);
+});
+test('a reading that is not a usage answer leaves the account unknown', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'usage-bad-answer-'));
+  const now = Date.now();
+  const collector = new Collector({
+    upstream: 'http://127.0.0.1:3425', magpieDir: directory, snapshotFile: path.join(directory, 'snapshot.json'),
+    clock: () => now,
+    fetcher: async url => {
+      if (url.pathname.endsWith('quotas')) return { ok: true, json: async () => makeAccountsQuotaResponse(now) };
+      if (url.search.includes('account=')) return { ok: true, json: async () => ({ error: 'PRIVATE_ERROR' }) };
+      return { ok: true, json: async () => makeRawUsage('today', now) };
+    },
+  });
+  await collector.refresh();
+  const codex = collector.overview().subscriptions.filter(card => card.provider === 'codex');
+  // A broken answer is not a reading of zero tokens.
+  assert.deepEqual(codex.map(card => card.usage), [null, null]);
+});
+test('the usage of an account survives a quota outage', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'usage-outage-'));
+  let now = Date.now();
+  const calls = [];
+  let quotaUp = true;
+  const quotas = makeAccountsQuotaResponse(now).data.map(card => ({ ...card, accountUsage: undefined }));
+  const collector = new Collector({
+    upstream: 'http://127.0.0.1:3425', magpieDir: directory, snapshotFile: path.join(directory, 'snapshot.json'),
+    clock: () => now,
+    fetcher: async url => {
+      calls.push(url.pathname + url.search);
+      if (url.pathname.endsWith('quotas')) {
+        if (!quotaUp) throw new Error('offline');
+        return { ok: true, json: async () => ({ data: quotas }) };
+      }
+      if (url.search.includes('account=')) {
+        return { ok: true, json: async () => ({ calls: 5, errors: 0, input: 100, output: 10, cache_read: 0, cache_write: 0 }) };
+      }
+      return { ok: true, json: async () => makeRawUsage('today', now) };
+    },
+  });
+  await collector.refresh();
+  assert.deepEqual(collector.overview().subscriptions.filter(card => card.provider === 'codex')
+    .map(card => card.usage.today.totalTokens), [110, 110]);
+  quotaUp = false; now += 60000;
+  await collector.refresh();
+  const after = collector.overview().subscriptions.filter(card => card.provider === 'codex');
+  assert.equal(after.length, 2);
+  assert.ok(after.every(card => card.stale));
+  // The addresses of the last successful reading are still in memory, so the
+  // usage of every account is asked for again.
+  assert.deepEqual(after.map(card => card.usage.today.totalTokens), [110, 110]);
+  assert.equal(calls.filter(call => call.includes('account=')).length, 4);
+  const saved = await readFile(path.join(directory, 'snapshot.json'), 'utf8');
+  assert.ok(!saved.includes('example.invalid'));
+  // A restart keeps the totals of the accounts, but never their addresses.
+  const restarted = new Collector({ upstream: 'http://127.0.0.1:3425', magpieDir: directory, snapshotFile: path.join(directory, 'snapshot.json'), clock: () => now });
+  await restarted.load();
+  assert.deepEqual(restarted.overview().subscriptions.filter(card => card.provider === 'codex')
+    .map(card => card.usage.today.totalTokens), [110, 110]);
+  assert.ok(!JSON.stringify(restarted.overview()).includes('example.invalid'));
+});

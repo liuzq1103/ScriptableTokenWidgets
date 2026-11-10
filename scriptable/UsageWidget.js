@@ -225,8 +225,9 @@ if (!settings || !data || data.schemaVersion !== 1) {
     }
     widget.addSpacer();
     // The tokens of the subscription this widget shows, not the total of all.
+    // A subscription that is not on screen has no tokens of its own to show.
     const own = card && card.usage && card.usage.today;
-    const tokens = card ? (own ? own.totalTokens : null) : data.usage.today && data.usage.today.totalTokens;
+    const tokens = own ? own.totalTokens : null;
     text(widget, "今日 " + (tokens == null ? "—" : compact(tokens)) + " token", 10, colors.muted);
   } else {
     // Preserve service order and every independent account; page only on the phone.

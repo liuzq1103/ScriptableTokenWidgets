@@ -140,7 +140,15 @@ export function normalizeQuotas(raw, cache = {}) {
     if (family) familySize.set(family, (familySize.get(family) || 0) + 1);
   }
   const taken = new Set();
-  return raw.data.flatMap(card => {
+  // The cards of one vendor are ordered by the name of their own account, so
+  // an account keeps its place whatever order the gateway lists the accounts
+  // in, and "the first account of a vendor" always means the same one.
+  const ordered = [...raw.data].sort((a, b) => {
+    const name = card => (accountName(card?.user ?? card?.account) || '').toLowerCase();
+    const left = name(a), right = name(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+  return ordered.flatMap(card => {
     const provider = PROVIDERS[card?.provider];
     if (!provider || !Array.isArray(card.windows)) return [];
     const index = counts[provider.id] = (counts[provider.id] || 0) + 1;
@@ -399,14 +407,24 @@ export function project(snapshot, now = Date.now(), display = {}) {
   // Each subscription carries the usage of its own account, or of its vendor
   // when it is the only account of that vendor: a widget that shows one
   // subscription then shows that subscription's own numbers.
-  const todayProviders = todayPart?.data?.providers || [];
+  const cards = snapshot.parts.quotas?.data || [];
+  const familySizes = new Map();
+  for (const card of cards) familySizes.set(card.provider, (familySizes.get(card.provider) || 0) + 1);
+  const todayProviders = outdated ? [] : (todayPart?.data?.providers || []);
   const usageOf = card => {
     if (card.account) return card.accountUsage || null;
+    // A vendor with several accounts cannot lend its total to one of them:
+    // the sum would count the other account's tokens as well.
+    if ((familySizes.get(card.provider) || 0) > 1) return null;
     const label = FAMILY_LABELS[card.provider];
-    const row = label ? todayProviders.find(row => row.label === label) : null;
-    return row ? { today: { totalTokens: row.totalTokens, requests: row.requests } } : null;
+    const rows = label ? todayProviders.filter(row => row.label === label) : [];
+    if (!rows.length) return null;
+    return { today: {
+      totalTokens: rows.reduce((sum, row) => sum + number(row.totalTokens), 0),
+      requests: rows.reduce((sum, row) => sum + number(row.requests), 0),
+    } };
   };
-  const subscriptions = (snapshot.parts.quotas?.data || []).map(card => ({
+  const subscriptions = cards.map(card => ({
     ...card,
     usage: usageOf(card),
     stale: card.stale === true || sources.quotas.state !== 'ok' || !!card.updatedAt && now - Date.parse(card.updatedAt) > 900_000,

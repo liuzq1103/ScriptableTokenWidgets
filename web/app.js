@@ -111,6 +111,10 @@ function renderQuotas(cards) {
     if (card.usage && card.usage.today) {
       const today = card.usage.today;
       article.append(node('p', 'fine-print', '今日 ' + compact(today.totalTokens) + ' Token · ' + today.requests + ' 次请求'));
+    } else {
+      // The usage of this subscription is unknown; the total of all is never
+      // shown in its place.
+      article.append(node('p', 'fine-print', '今日用量未知'));
     }
     if (card.stale) article.append(node('p', 'stale-label', '缓存额度· ' + (card.updatedAt ? time(card.updatedAt) : '读取时间未知')));
     article.title = '额度读数：' + time(card.updatedAt);

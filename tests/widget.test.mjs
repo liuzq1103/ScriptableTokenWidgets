@@ -157,6 +157,10 @@ test('the small widget shows the tokens of the subscription it shows', async () 
   // A vendor with one account is counted by its own usage row.
   const glm = await render('small', { parameter: 'glm' });
   assert.ok(glm.texts.some(t => /^今日 [\d.]+[MK] token$/.test(t)), glm.texts.join(' | '));
+  // A subscription that is not on screen shows no tokens of its own.
+  const missing = await render('small', { parameter: 'nothing' });
+  assert.ok(missing.texts.includes('暂无该套餐'));
+  assert.ok(missing.texts.some(t => t.includes('今日 — token')), missing.texts.join(' | '));
 });
 
 const screenCases = [

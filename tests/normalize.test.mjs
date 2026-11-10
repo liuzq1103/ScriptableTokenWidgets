@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { metrics, normalizeQuotas, resolveQuotas, normalizeUsage, project, displayOptions, displayOverrides, sanitizeCachedLabels } from '../backend/normalize.mjs';
-import { makeRawUsage, makeQuotaResponse, makeAccountsQuotaResponse } from '../fixtures/demo.mjs';
+import { makeRawUsage, makeQuotaResponse, makeAccountsQuotaResponse, withAccountUsage } from '../fixtures/demo.mjs';
 const now = Date.parse('2026-06-12T04:00:00Z');
 const sample = tokens => ({ calls: 1, errors: 0, input: tokens, output: 0, cache_read: 0, cache_write: 0, reasoning: 0 });
 test('cache is added once; reasoning is not added to output again', () => {
@@ -274,6 +274,10 @@ test('two accounts of one vendor are told apart by their own identity', () => {
   const flipped = normalizeQuotas({ data: [...raw.data].reverse() });
   assert.deepEqual(flipped.map(card => card.id).sort(), cards.map(card => card.id).sort());
   assert.deepEqual(flipped.map(card => card.label).sort(), cards.map(card => card.label).sort());
+  // The order of the cards is the order of the accounts themselves, so an
+  // account keeps its place whatever order the gateway lists them in.
+  assert.deepEqual(flipped.map(card => card.id), cards.map(card => card.id));
+  assert.deepEqual(flipped.map(card => card.label), cards.map(card => card.label));
 });
 test('a broken account is recovered on its own and never borrows the other one', () => {
   const raw = makeAccountsQuotaResponse(now);
@@ -308,7 +312,7 @@ test('the name the user gave an account is shown, and only a plain one is', () =
 test('a subscription carries the usage of its own account, or of its vendor', () => {
   const observedAt = new Date(now).toISOString();
   const snapshot = { failures: {}, parts: {
-    quotas: { observedAt, data: normalizeQuotas(makeAccountsQuotaResponse(now)) },
+    quotas: { observedAt, data: withAccountUsage(normalizeQuotas(makeAccountsQuotaResponse(now))) },
     today: { observedAt, data: normalizeUsage(makeRawUsage('today', now)) },
   } };
   const cards = project(snapshot, now).subscriptions;
@@ -322,11 +326,23 @@ test('a subscription carries the usage of its own account, or of its vendor', ()
   assert.ok(glm.usage.today.totalTokens < project(snapshot, now).usage.today.totalTokens);
   // An account whose own usage could not be read stays unknown, and never
   // borrows the total of the whole vendor.
-  const withoutUsage = { ...snapshot, parts: { ...snapshot.parts, quotas: { observedAt, data: normalizeQuotas({
-    data: makeAccountsQuotaResponse(now).data.map(card => ({ ...card, accountUsage: undefined })),
-  }) } } };
+  const withoutUsage = { ...snapshot, parts: { ...snapshot.parts, quotas: { observedAt, data: normalizeQuotas(
+    makeAccountsQuotaResponse(now),
+  ) } } };
   assert.deepEqual(project(withoutUsage, now).subscriptions.filter(card => card.provider === 'codex')
     .map(card => card.usage), [null, null]);
+  // A vendor with several accounts never lends its total to a card that
+  // cannot be named: the sum would count the other account's tokens as well.
+  const unnamed = { ...snapshot, parts: { ...snapshot.parts, quotas: { observedAt, data: normalizeQuotas({
+    data: makeAccountsQuotaResponse(now).data.map(card => card.user === 'first@example.invalid'
+      ? { ...card, user: 'first+tag@example.invalid' } : card),
+  }) } } };
+  const mixed = project(unnamed, now).subscriptions.filter(card => card.provider === 'codex');
+  assert.equal(mixed.length, 2);
+  assert.equal(mixed.find(card => !card.account).usage, null);
+  // A reading of another day is no usage of today.
+  const yesterday = { ...snapshot, parts: { ...snapshot.parts, today: { observedAt: new Date(now - 86400000).toISOString(), data: normalizeUsage(makeRawUsage('today', now)) } } };
+  assert.equal(project(yesterday, now).subscriptions.find(card => card.provider === 'glm').usage, null);
 });
 test('the display configuration can pick one account of a vendor', () => {
   const snapshot = { failures: {}, parts: { quotas: { observedAt: new Date(now).toISOString(), data: normalizeQuotas(makeAccountsQuotaResponse(now)) } } };

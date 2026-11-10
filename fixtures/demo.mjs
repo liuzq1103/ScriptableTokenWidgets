@@ -28,21 +28,35 @@ export function makeQuotaResponse(now = Date.now()) {
   ] };
 }
 // Two accounts of one vendor, each named after its own identity: the shape
-// Magpie reports when a second ChatGPT plan is signed in. The first account
-// carries the name the user gave it in Magpie ("magpie accounts alias").
+// Magpie reports when a second ChatGPT plan is signed in. The reading of the
+// quotas carries no usage: that is asked for by account, one query each.
 export function makeAccountsQuotaResponse(now = Date.now()) {
   const at = delta => new Date(now + delta).toISOString();
   return { data: [
-    { provider: 'codex', plan: 'Plus', user: 'first@example.invalid', alias: 'Work', readAt: at(0), accountUsage: { today: { totalTokens: 12_345_678, requests: 120 } }, windows: [{ name: '5 hours', used: 41, resetsAt: at(155 * 60000) }, { name: '7 days', used: 16, resetsAt: at(5 * 86400000), amount: 96_000_000, limit: 600_000_000 }] },
-    { provider: 'codex', plan: 'Plus', user: 'second@example.invalid', readAt: at(0), accountUsage: { today: { totalTokens: 4_567_890, requests: 45 } }, windows: [{ name: '5 hours', used: 8, resetsAt: at(155 * 60000) }, { name: '7 days', used: 62, resetsAt: at(2 * 86400000) }] },
+    { provider: 'codex', plan: 'Plus', user: 'first@example.invalid', alias: 'Work', readAt: at(0), windows: [{ name: '5 hours', used: 41, resetsAt: at(155 * 60000) }, { name: '7 days', used: 16, resetsAt: at(5 * 86400000), amount: 96_000_000, limit: 600_000_000 }] },
+    { provider: 'codex', plan: 'Plus', user: 'second@example.invalid', readAt: at(0), windows: [{ name: '5 hours', used: 8, resetsAt: at(155 * 60000) }, { name: '7 days', used: 62, resetsAt: at(2 * 86400000) }] },
     { provider: 'minimax-cn', plan: 'Coding Plan', readAt: at(0), windows: [{ name: '5 hours', used: 76, resetsAt: at(47 * 60000) }] },
     { provider: 'zhipu', plan: 'Max', readAt: at(0), windows: [{ name: '5 hours', used: 24, resetsAt: at(94 * 60000) }, { name: '7 days', used: 33, resetsAt: at(3 * 86400000) }] },
   ] };
 }
+// The usage the demo shows for every account. It is what the gateway answers
+// when it is asked for one account alone: totals, and no address.
+export const DEMO_ACCOUNT_USAGE = {
+  first: { totalTokens: 12_345_678, requests: 120 },
+  second: { totalTokens: 4_567_890, requests: 45 },
+};
+// Give every card the usage of its own account, the way the collector does
+// after it has asked the gateway for it.
+export function withAccountUsage(cards) {
+  return cards.map(card => {
+    const own = DEMO_ACCOUNT_USAGE[card.account];
+    return own ? { ...card, accountUsage: { today: { ...own } } } : card;
+  });
+}
 export function makeDemo(now = Date.now()) {
   const observedAt = new Date(now).toISOString();
   return { ...project({ failures: {}, parts: {
-    quotas: { observedAt, data: normalizeQuotas(makeAccountsQuotaResponse(now)) },
+    quotas: { observedAt, data: withAccountUsage(normalizeQuotas(makeAccountsQuotaResponse(now))) },
     today: { observedAt, data: normalizeUsage(makeRawUsage('today', now)) },
     week: { observedAt, data: normalizeUsage(makeRawUsage('7d', now)) },
   } }, now), demo: true };
