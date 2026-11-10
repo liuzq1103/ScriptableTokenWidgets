@@ -11,7 +11,10 @@ const collector = new Collector({
   ...config, snapshotFile: path.join(root, '.local/validation-snapshot.json'),
   fetcher: async (url, options) => {
     const response = await fetch(url, options), data = await response.json();
-    originals[url.searchParams.get('period') || 'quotas'] = data;
+    // An account's own usage is a separate query; it must not replace the
+    // day's totals the checks below compare against.
+    const account = url.searchParams.get('account');
+    originals[account ? 'account:' + account : (url.searchParams.get('period') || 'quotas')] = data;
     return { ok: response.ok, json: async () => data };
   },
 });
@@ -71,6 +74,15 @@ for (const card of result.subscriptions) {
     assert.ok(window.usedPercent >= 0 && window.usedPercent <= 100);
     assert.equal(window.remainingPercent, 100 - window.usedPercent);
   }
+  // A subscription's own usage is part of the day's total, never more.
+  if (card.usage && card.usage.today) {
+    assert.ok(card.usage.today.totalTokens >= 0);
+    assert.ok(card.usage.today.totalTokens <= result.usage.today.totalTokens);
+    assert.ok(card.usage.today.requests <= result.usage.today.requests);
+  }
 }
+const accounts = Object.keys(originals).filter(key => key.startsWith('account:'));
+assert.equal(accounts.length, result.subscriptions.filter(card => card.accountUsage).length,
+  'every account of a vendor is asked for its own usage');
 const cached = result.subscriptions.filter(card => card.stale).length;
 console.log('Live verification passed: merged today/7d totals, daily trend, ' + result.rankings.models.length + ' models, ' + result.rankings.computers.length + ' devices and ' + result.subscriptions.length + ' subscriptions (' + cached + ' cached). No credentials or private usage printed.');

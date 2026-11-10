@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Collector } from '../backend/collector.mjs';
-import { makeRawUsage, makeQuotaResponse } from '../fixtures/demo.mjs';
+import { makeRawUsage, makeQuotaResponse, makeAccountsQuotaResponse } from '../fixtures/demo.mjs';
 
 const quotaNow = Date.parse('2026-06-12T04:00:00Z');
 function diskQuotas(now = quotaNow) {
@@ -150,4 +150,31 @@ test('quota failure with no usable disk or history stays unavailable instead of 
   await collector.refresh();
   assert.deepEqual(collector.overview().subscriptions, []);
   assert.equal(collector.overview().sources.quotas.state, 'unavailable');
+});
+
+test('every account of a vendor is asked for its own usage, and the address is never stored', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'usage-accounts-'));
+  const now = Date.now(), calls = [];
+  const collector = new Collector({
+    upstream: 'http://127.0.0.1:3425', magpieDir: directory, snapshotFile: path.join(directory, 'snapshot.json'),
+    clock: () => now,
+    fetcher: async url => {
+      calls.push(url.pathname + url.search);
+      if (url.pathname.endsWith('quotas')) return { ok: true, json: async () => makeAccountsQuotaResponse(now) };
+      if (url.search.includes('account=')) {
+        return { ok: true, json: async () => ({ calls: 5, errors: 0, input: 100, output: 10, cache_read: 0, cache_write: 0, by: {} }) };
+      }
+      return { ok: true, json: async () => makeRawUsage('7d', now) };
+    },
+  });
+  await collector.refresh();
+  const codex = collector.overview().subscriptions.filter(card => card.provider === 'codex');
+  assert.equal(codex.length, 2);
+  assert.deepEqual(codex.map(card => card.usage.today.totalTokens), [110, 110]);
+  assert.deepEqual(codex.map(card => card.usage.today.requests), [5, 5]);
+  // The address is only a filter of the local query; it is never kept.
+  assert.equal(calls.filter(call => call.includes('account=')).length, 2);
+  const saved = await readFile(path.join(directory, 'snapshot.json'), 'utf8');
+  assert.ok(!saved.includes('example.invalid'));
+  assert.ok(!JSON.stringify(collector.overview()).includes('example.invalid'));
 });

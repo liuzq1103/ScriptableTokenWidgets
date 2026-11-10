@@ -305,6 +305,29 @@ test('the name the user gave an account is shown, and only a plain one is', () =
     assert.equal(card.label, 'Codex', alias);
   }
 });
+test('a subscription carries the usage of its own account, or of its vendor', () => {
+  const observedAt = new Date(now).toISOString();
+  const snapshot = { failures: {}, parts: {
+    quotas: { observedAt, data: normalizeQuotas(makeAccountsQuotaResponse(now)) },
+    today: { observedAt, data: normalizeUsage(makeRawUsage('today', now)) },
+  } };
+  const cards = project(snapshot, now).subscriptions;
+  const codex = cards.filter(card => card.provider === 'codex');
+  // Each account of the vendor is counted on its own.
+  assert.deepEqual(codex.map(card => card.usage.today.totalTokens), [12_345_678, 4_567_890]);
+  assert.deepEqual(codex.map(card => card.usage.today.requests), [120, 45]);
+  // A vendor with one account is counted by its own usage row.
+  const glm = cards.find(card => card.provider === 'glm');
+  assert.ok(glm.usage.today.totalTokens > 0);
+  assert.ok(glm.usage.today.totalTokens < project(snapshot, now).usage.today.totalTokens);
+  // An account whose own usage could not be read stays unknown, and never
+  // borrows the total of the whole vendor.
+  const withoutUsage = { ...snapshot, parts: { ...snapshot.parts, quotas: { observedAt, data: normalizeQuotas({
+    data: makeAccountsQuotaResponse(now).data.map(card => ({ ...card, accountUsage: undefined })),
+  }) } } };
+  assert.deepEqual(project(withoutUsage, now).subscriptions.filter(card => card.provider === 'codex')
+    .map(card => card.usage), [null, null]);
+});
 test('the display configuration can pick one account of a vendor', () => {
   const snapshot = { failures: {}, parts: { quotas: { observedAt: new Date(now).toISOString(), data: normalizeQuotas(makeAccountsQuotaResponse(now)) } } };
   assert.deepEqual(displayOptions({ subscriptions: ['codex@second'] }).subscriptions, ['codex@second']);

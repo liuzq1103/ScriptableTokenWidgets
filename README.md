@@ -70,6 +70,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1
 
 小号组件按 Widget Parameter 选择套餐（默认 `codex`）。如果 PC 端 `subscriptions` 里没有这一家，组件显示"暂无该套餐"而不是回退到别家——改参数或在 PC 端加上这一家即可。同一个厂商有多个账号时，参数可写 `codex@liuzq` 指定其中一个账号，写 `codex` 表示该厂商的第一个账号；PC 端的 `subscriptions` 也接受这种写法。
 
+小号组件底部的“今日 … token”是**这个套餐自己的**用量：多个账号时各算各的（今天没被调用的账号显示 0），只有一个账号的厂商按该厂商自己的用量算。中号与大号一次显示多个套餐，页脚仍是全部用量的合计。
+
 ## 日常维护
 
 ```powershell

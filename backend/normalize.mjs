@@ -6,6 +6,11 @@ const PROVIDERS = {
 };
 // Canonical display order of the known subscription families.
 const PROVIDER_ORDER = ['codex', 'minimax', 'glm'];
+// The display name of each family, used to match a subscription with the usage
+// row of the same vendor.
+const FAMILY_LABELS = { codex: 'Codex', minimax: 'MiniMax', glm: 'GLM' };
+// The family an upstream provider id belongs to, or null when it is unknown.
+export const providerFamily = id => PROVIDERS[id]?.id || null;
 export const iso = value => typeof value === 'string' && Number.isFinite(Date.parse(value))
   ? new Date(value).toISOString() : null;
 export const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -159,12 +164,17 @@ export function normalizeQuotas(raw, cache = {}) {
     while (taken.has(id)) id = base + '-' + attempt++;
     taken.add(id);
     const shown = alias || (named ? account : null);
+    // The usage of this account alone, when the gateway could report it.
+    const own = card?.accountUsage?.today;
+    const accountUsage = typeof own?.totalTokens === 'number' && Number.isFinite(own.totalTokens)
+      ? { today: { totalTokens: own.totalTokens, requests: number(own.requests) } } : null;
     return [{
       id,
       provider: provider.id,
       label: shown ? provider.label + ' · ' + shown : provider.label + (index > 1 ? ' ' + index : ''),
       account: named ? account : null,
       alias,
+      accountUsage,
       plan: typeof card.plan === 'string' && plans.test(card.plan) ? card.plan : provider.plan, updatedAt,
       stale: card.stale === true,
       windows: card.windows.filter(window => window && typeof window === 'object').map(window => {
@@ -301,6 +311,7 @@ export function sanitizeCachedLabels(data, key) {
     provider: card.provider === 'glm' ? 'zhipu' : card.provider, plan: card.plan, readAt: card.updatedAt, stale: card.stale === true,
     account: card.account,
     alias: card.alias,
+    accountUsage: card.accountUsage,
     windows: card.windows.map(window => ({ ...window, name: window.label, used: window.usedPercent })),
   })) });
   const cleanRows = (rows, type) => (rows || []).map((row, index) => ({ ...row, label: typedLabel(row.label, type, index) }));
@@ -385,8 +396,19 @@ export function project(snapshot, now = Date.now(), display = {}) {
   const todayPart = snapshot.parts.today;
   const outdated = !!todayPart && (todayPart.periodDay || shanghaiDay(Date.parse(todayPart.observedAt))) !== shanghaiDay(now);
   if (outdated) { sources.today.state = 'stale'; sources.today.outdated = true; }
+  // Each subscription carries the usage of its own account, or of its vendor
+  // when it is the only account of that vendor: a widget that shows one
+  // subscription then shows that subscription's own numbers.
+  const todayProviders = todayPart?.data?.providers || [];
+  const usageOf = card => {
+    if (card.account) return card.accountUsage || null;
+    const label = FAMILY_LABELS[card.provider];
+    const row = label ? todayProviders.find(row => row.label === label) : null;
+    return row ? { today: { totalTokens: row.totalTokens, requests: row.requests } } : null;
+  };
   const subscriptions = (snapshot.parts.quotas?.data || []).map(card => ({
     ...card,
+    usage: usageOf(card),
     stale: card.stale === true || sources.quotas.state !== 'ok' || !!card.updatedAt && now - Date.parse(card.updatedAt) > 900_000,
     windows: card.windows.map(window => ({ ...window,
       expired: !!window.resetsAt && Date.parse(window.resetsAt) <= now,

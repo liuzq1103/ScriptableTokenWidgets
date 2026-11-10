@@ -224,7 +224,10 @@ if (!settings || !data || data.schemaVersion !== 1) {
       widget.addSpacer(3); text(widget, windowLabel(card.windows[1]) + (showUsed ? " 已用 " : " 剩余 ") + percent(card.windows[1]), 9, colors.muted);
     }
     widget.addSpacer();
-    text(widget, "今日 " + compact(data.usage.today && data.usage.today.totalTokens) + " token", 10, colors.muted);
+    // The tokens of the subscription this widget shows, not the total of all.
+    const own = card && card.usage && card.usage.today;
+    const tokens = card ? (own ? own.totalTokens : null) : data.usage.today && data.usage.today.totalTokens;
+    text(widget, "今日 " + (tokens == null ? "—" : compact(tokens)) + " token", 10, colors.muted);
   } else {
     // Preserve service order and every independent account; page only on the phone.
     const all = data.subscriptions || [];

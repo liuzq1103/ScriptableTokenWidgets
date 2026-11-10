@@ -108,6 +108,10 @@ function renderQuotas(cards) {
     });
     article.append(windows);
     if (!card.windows.length) article.append(node('p', 'fine-print', '此套餐未提供额度窗口'));
+    if (card.usage && card.usage.today) {
+      const today = card.usage.today;
+      article.append(node('p', 'fine-print', '今日 ' + compact(today.totalTokens) + ' Token · ' + today.requests + ' 次请求'));
+    }
     if (card.stale) article.append(node('p', 'stale-label', '缓存额度· ' + (card.updatedAt ? time(card.updatedAt) : '读取时间未知')));
     article.title = '额度读数：' + time(card.updatedAt);
     parent.append(article);

@@ -147,6 +147,18 @@ test('the widget parameter picks one account of a vendor', async () => {
   assert.ok(second.texts.some(t => t.includes('Codex · second')));
 });
 
+test('the small widget shows the tokens of the subscription it shows', async () => {
+  const first = await render('small', { parameter: 'codex@first' });
+  assert.ok(first.texts.some(t => t.includes('12.35M')), 'the first account has its own tokens');
+  assert.ok(!first.texts.some(t => t.includes('4.57M')));
+  const second = await render('small', { parameter: 'codex@second' });
+  assert.ok(second.texts.some(t => t.includes('4.57M')));
+  assert.ok(!second.texts.some(t => t.includes('12.35M')));
+  // A vendor with one account is counted by its own usage row.
+  const glm = await render('small', { parameter: 'glm' });
+  assert.ok(glm.texts.some(t => /^今日 [\d.]+[MK] token$/.test(t)), glm.texts.join(' | '));
+});
+
 const screenCases = [
   { name: 'narrow', screen: { width: 320, height: 568 }, width: 292 },
   { name: 'compact', screen: { width: 375, height: 667 }, width: 322 },

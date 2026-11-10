@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
-import { resolveQuotas, normalizeUsage, project, shanghaiDay, sanitizeCachedLabels } from './normalize.mjs';
+import { resolveQuotas, normalizeUsage, project, shanghaiDay, sanitizeCachedLabels, providerFamily, number } from './normalize.mjs';
 
 export class Collector {
   constructor({ upstream, magpieDir, snapshotFile, fetcher = fetch, clock = Date.now, display = {} }) {
@@ -36,8 +36,31 @@ export class Collector {
     const [response, cache] = await Promise.allSettled([
       this.request('/v1/magpie/quotas?kept=1'), this.quotaCache(),
     ]);
-    return resolveQuotas(response.status === 'fulfilled' ? response.value : null,
-      cache.status === 'fulfilled' ? cache.value : {}, this.snapshot.parts.quotas?.data || []);
+    const raw = response.status === 'fulfilled' ? response.value : null;
+    const cards = resolveQuotas(raw, cache.status === 'fulfilled' ? cache.value : {}, this.snapshot.parts.quotas?.data || []);
+    await this.accountUsage(raw, cards);
+    return cards;
+  }
+  // An account's own usage is asked for by the address Magpie reports for it.
+  // The address goes into the query of the local gateway and only the totals
+  // come back, so it never leaves this machine and is never stored.
+  async accountUsage(raw, cards) {
+    const addresses = new Map();
+    for (const card of raw?.data || []) {
+      const family = providerFamily(card?.provider);
+      const address = typeof card?.user === 'string' ? card.user.trim() : '';
+      if (!family || !address.includes('@')) continue;
+      addresses.set(family + '@' + address.split('@')[0], address);
+    }
+    await Promise.all(cards.filter(card => card.account).map(async card => {
+      const address = addresses.get(card.id);
+      if (!address) return;
+      try {
+        const data = await this.request('/v1/magpie/usage/requests?period=today&limit=1&account=' + encodeURIComponent(address));
+        const total = number(data.input) + number(data.output) + number(data.cache_read) + number(data.cache_write);
+        card.accountUsage = { today: { totalTokens: total, requests: number(data.calls) } };
+      } catch { /* The card keeps what the family reports. */ }
+    }));
   }
   refresh() {
     if (this.pending) return this.pending;

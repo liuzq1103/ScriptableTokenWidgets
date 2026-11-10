@@ -52,6 +52,8 @@ Agent 条目同样按上游稳定 id 解析，覆盖 Magpie 已知的全部 agen
 - `expired`：窗口是否已到期；客户端在离线时也必须重新计算。
 - `amount`、`limit`：厂商明确提供时保留；不推断额度单位。
 
+每个套餐还带 `usage`：该套餐自己的今日用量（`today.totalTokens`、`today.requests`）。同一厂商有多个账号时，这是那一个账号自己的用量（Magpie 按账号过滤用量后只回总量，账号地址不离开本机、不写入快照）；只有一个账号的厂商，取该厂商自己的用量行。取不到时为 null，客户端不得用全量顶替。
+
 指标字段：`requests`、`errors`、`inputTokens`、`outputTokens`、`cacheReadTokens`、`cacheWriteTokens`、`reasoningTokens`、`totalTokens`、`cacheHitPercent`、`cost`、`unpriced`、`outputTokensPerSecond`、`ttftMs`。缓存命中率分母为输入＋缓存读取＋缓存写入，与 `totalTokens` 的口径一致；分母为 0 时为 null。`cost` 为 Magpie 按实效价格的估算值，`unpriced` 为未计价请求数（估算可能偏低），货币单位以 Magpie 价格表为准；`outputTokensPerSecond` 为流式解码吞吐，`ttftMs` 为平均首字延迟，两者只统计有测量的请求，无测量时为 null。
 
 总 Token = 输入＋输出＋缓存读取＋缓存写入。额度百分比是厂商独立指标，不与这个总数换算；详情页与组件可在剩余/已用两种视图间切换。费用为 Magpie 的估算值，仅供参考；账户账单不属于本接口。
